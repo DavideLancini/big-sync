@@ -14,7 +14,7 @@ _tasklist_id_cache: str | None = None
 
 
 def _build_service():
-    return build("tasks", "v1", credentials=get_credentials())
+    return build("tasks", "v1", credentials=get_credentials("tasks"))
 
 
 def _get_or_create_tasklist(service) -> str:
