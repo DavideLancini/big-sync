@@ -184,7 +184,7 @@ class Command(BaseCommand):
             # Transcribe audio messages that have a downloaded file
             for m in msgs:
                 if m.media_type in AUDIO_MEDIA_TYPES and m.media_path and not m.transcription:
-                    abs_path = f"/var/www/big-sync/{m.media_path}"
+                    abs_path = f"/var/www/big-sync/media/{m.media_path}"
                     if not __import__("os").path.exists(abs_path):
                         continue
                     try:
