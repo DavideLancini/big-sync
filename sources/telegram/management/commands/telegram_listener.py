@@ -18,7 +18,7 @@ from sources.telegram.media import (
     should_skip_entity, download_media,
 )
 from sources.telegram.models import TelegramMessage, MediaType
-from workflows.workflow_telegram import process_message
+# from workflows.workflow_telegram import process_message  # re-enable after historical analysis
 
 logger = logging.getLogger(__name__)
 
@@ -116,24 +116,8 @@ class Command(BaseCommand):
                         await sync_to_async(_update_media_path)(obj.pk, path)
                         self.stdout.write(f"  → media saved: {path}")
 
-                if created:
-                    datetime_str = (msg.date or timezone.now()).strftime("%Y-%m-%d %H:%M")
-                    try:
-                        counts = await sync_to_async(process_message)(
-                            chat_name=chat_name,
-                            sender=sender_name,
-                            datetime_str=datetime_str,
-                            text=text,
-                            media_type=media_type,
-                        )
-                        await sync_to_async(
-                            TelegramMessage.objects.filter(pk=obj.pk).update
-                        )(processed=True)
-                        total = sum(counts.values())
-                        if total:
-                            self.stdout.write(f"  → extracted: {counts}")
-                    except Exception:
-                        logger.exception("Error analyzing message id=%s", obj.id)
+                # Real-time analysis disabled — historical backlog in progress.
+                # Re-enable after telegram_analyze_history completes.
 
             except Exception as e:
                 self.stderr.write(f"Error: {e}")
