@@ -9,6 +9,7 @@ Safe to re-run: already-processed messages are skipped.
 Audio transcription is NOT done here — use telegram_transcribe_audio separately.
 """
 import logging
+import os
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone as dt_timezone
 
@@ -16,7 +17,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from sources.telegram.models import TelegramMessage
-from workflows.gemini import AUDIO_MEDIA_TYPES
+from workflows.gemini import AUDIO_MEDIA_TYPES, transcribe_audio
 from workflows.workflow_telegram import process_batch
 
 logger = logging.getLogger(__name__)
@@ -188,6 +189,26 @@ class Command(BaseCommand):
             if options["dry_run"]:
                 self.stdout.write(" [skipped]")
                 continue
+
+            # Transcribe audio messages that have a downloaded file
+            for m in msgs:
+                if m.media_type in AUDIO_MEDIA_TYPES and m.media_path and not m.transcription:
+                    abs_path = f"/var/www/big-sync/media/{m.media_path}"
+                    if not os.path.exists(abs_path):
+                        continue
+                    self.stdout.write(f"\n    [transcribing {m.pk} ({os.path.getsize(abs_path)//1024}KB)...]", ending="")
+                    self.stdout.flush()
+                    try:
+                        t = transcribe_audio(abs_path)
+                        if t:
+                            TelegramMessage.objects.filter(pk=m.pk).update(transcription=t)
+                            m.transcription = t
+                            self.stdout.write(f" done ({len(t)} chars)", ending="")
+                        else:
+                            self.stdout.write(f" empty", ending="")
+                    except Exception as e:
+                        self.stdout.write(f" ERROR: {e}", ending="")
+                    self.stdout.flush()
 
             batch_data = [
                 {
