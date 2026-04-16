@@ -4,6 +4,7 @@ Receives all incoming messages and saves them to the database.
 Run as a systemd service: manage.py telegram_listener
 """
 import asyncio
+import datetime
 import logging
 
 from asgiref.sync import sync_to_async
@@ -16,6 +17,19 @@ from telethon.tl.types import User, Chat, Channel
 from sources.telegram.models import TelegramMessage
 
 logger = logging.getLogger(__name__)
+
+
+def _serialize(obj):
+    """Recursively convert non-JSON-serializable types in Telethon dicts."""
+    if isinstance(obj, dict):
+        return {k: _serialize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_serialize(v) for v in obj]
+    if isinstance(obj, (datetime.datetime, datetime.date)):
+        return obj.isoformat()
+    if isinstance(obj, bytes):
+        return obj.hex()
+    return obj
 
 
 def _get_chat_name(chat) -> str:
@@ -94,7 +108,7 @@ class Command(BaseCommand):
                     sender_name=sender_name,
                     text=text,
                     date=msg.date or timezone.now(),
-                    raw=msg.to_dict(),
+                    raw=_serialize(msg.to_dict()),
                 )
                 status = "saved" if created else "already exists"
                 self.stdout.write(f"  → {status} (id={obj.id})")
