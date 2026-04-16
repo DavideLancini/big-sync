@@ -6,22 +6,23 @@ START_DATE (default 2026-01-01). Marks each message as processed=True after
 successful batch analysis.
 
 Safe to re-run: already-processed messages are skipped.
+Audio transcription is NOT done here — use telegram_transcribe_audio separately.
 """
 import logging
+import os
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from sources.telegram.models import TelegramMessage
-from workflows.gemini import transcribe_audio, AUDIO_MEDIA_TYPES
+from workflows.gemini import AUDIO_MEDIA_TYPES
 from workflows.workflow_telegram import process_batch
 
 logger = logging.getLogger(__name__)
 
 START_DATE = date(2000, 1, 1)  # effectively no lower bound
-
 
 BATCH_MAX = 25  # target max messages per Gemini call
 
@@ -54,14 +55,12 @@ def _iter_day_chat_batches(start: date, end: date):
         seen_chats.add(chat_id)
         chat_name = row["chat_name"]
 
-        # Fetch all unprocessed messages for this chat in one query, group by day in Python
         all_msgs = list(
             TelegramMessage.objects
             .filter(chat_id=chat_id, processed=False, date__date__gte=start, date__date__lte=end)
             .order_by("date")
         )
 
-        # Group by local date
         by_day: dict[date, list] = defaultdict(list)
         for m in all_msgs:
             by_day[m.date.date()].append(m)
@@ -115,11 +114,6 @@ class Command(BaseCommand):
             "--dry-run",
             action="store_true",
             help="Print batches without calling Gemini or writing to Google",
-        )
-        parser.add_argument(
-            "--skip-transcription",
-            action="store_true",
-            help="Skip audio transcription (useful if Gemini File API is hanging)",
         )
 
     def handle(self, *args, **options):
@@ -175,7 +169,6 @@ class Command(BaseCommand):
             if not msgs:
                 continue
 
-            # Use the start date of the batch as the reference date for Gemini
             date_str = msgs[0].date.strftime("%Y-%m-%d")
             self.stdout.write(
                 f"  {date_label} | {chat_name} ({chat_id}) — {len(msgs)} msgs",
@@ -186,29 +179,6 @@ class Command(BaseCommand):
             if options["dry_run"]:
                 self.stdout.write(" [skipped]")
                 continue
-
-            # Transcribe audio messages that have a downloaded file
-            import os as _os
-            if not options["skip_transcription"]:
-                for m in msgs:
-                    if m.media_type in AUDIO_MEDIA_TYPES and m.media_path and not m.transcription:
-                        abs_path = f"/var/www/big-sync/media/{m.media_path}"
-                        if not _os.path.exists(abs_path):
-                            self.stdout.write(f"\n    [audio {m.pk}: file not found, skipping]", ending="")
-                            continue
-                        self.stdout.write(f"\n    [transcribing {m.pk} ({_os.path.getsize(abs_path)//1024}KB)...]", ending="")
-                        self.stdout.flush()
-                        try:
-                            t = transcribe_audio(abs_path)
-                            if t:
-                                TelegramMessage.objects.filter(pk=m.pk).update(transcription=t)
-                                m.transcription = t
-                                self.stdout.write(f" done ({len(t)} chars)", ending="")
-                            else:
-                                self.stdout.write(f" empty response", ending="")
-                        except Exception as e:
-                            self.stdout.write(f" ERROR: {e}", ending="")
-                        self.stdout.flush()
 
             batch_data = [
                 {
@@ -227,7 +197,6 @@ class Command(BaseCommand):
                 logger.exception("Gemini error on batch %s %s", chat_name, date_str)
                 continue
 
-            # Mark processed only on successful Gemini response
             msg_ids = [m.pk for m in msgs]
             TelegramMessage.objects.filter(pk__in=msg_ids).update(processed=True)
 
