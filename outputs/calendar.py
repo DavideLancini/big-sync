@@ -17,15 +17,18 @@ def _build_service():
 
 
 def _parse_datetime(date_str: str, time_str: str) -> str | None:
-    """Return RFC3339 datetime string or None."""
+    """Return RFC3339 datetime string or None. Falls back to date-only if time can't be parsed."""
     if not date_str:
         return None
-    try:
-        if time_str:
+    if time_str:
+        try:
             dt = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
-        else:
-            dt = datetime.strptime(date_str, "%Y-%m-%d")
-        return dt.isoformat()
+            return dt.isoformat()
+        except ValueError:
+            pass  # unparseable time (e.g. "evening") → fall back to date-only
+    try:
+        datetime.strptime(date_str, "%Y-%m-%d")
+        return date_str
     except ValueError:
         return None
 
