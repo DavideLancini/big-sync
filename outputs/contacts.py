@@ -134,6 +134,26 @@ def _enrich_contact(service, local: Contact, data: dict) -> str | None:
         local.role = data.get("role") or ""
         local_changed = True
 
+    # Notes — append to existing biography
+    NOTES_MAX = 2048
+    new_note = (data.get("notes") or "").strip()
+    if new_note:
+        bios = existing.get("biographies", [])
+        current_notes = bios[0].get("value", "") if bios else ""
+        separator = "\n---\n" if current_notes else ""
+        appended = current_notes + separator + new_note
+        if len(appended) > NOTES_MAX:
+            raise ValueError(
+                f"Notes would exceed {NOTES_MAX} chars for contact "
+                f"'{data.get('name')}' (current={len(current_notes)}, "
+                f"adding={len(new_note)})"
+            )
+        if new_note not in current_notes:  # skip if already present
+            body["biographies"] = [{"value": appended, "contentType": "TEXT_PLAIN"}]
+            update_mask_fields.append("biographies")
+            local.notes = appended
+            local_changed = True
+
     if not update_mask_fields:
         logger.debug("Contact already up to date: %s", data.get("name"))
         return resource_name
