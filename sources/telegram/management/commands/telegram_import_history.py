@@ -1,8 +1,9 @@
 """
-Full Telegram history import.
-Order: private chats first, then groups.
-Skips broadcast channels and bots entirely.
-Safe to re-run: unique_together skips duplicates.
+Full Telegram history import with smart resume.
+- Privates first, then groups. Channels and bots skipped.
+- Per dialog: fetches only messages older than the oldest one already in DB.
+  Dialogs fully imported are detected and skipped in seconds.
+- Safe to re-run at any time.
 """
 import asyncio
 import logging
@@ -31,6 +32,12 @@ def _get_entity_name(entity) -> str:
     return str(getattr(entity, "id", ""))
 
 
+def _oldest_message_id(chat_id) -> int | None:
+    """Return the smallest message_id we already have for this chat, or None."""
+    result = TelegramMessage.objects.filter(chat_id=chat_id).order_by("message_id").values_list("message_id", flat=True).first()
+    return result
+
+
 def _save_message(chat_id, message_id, chat_name, sender_id, sender_name,
                   text, media_type, date, raw):
     obj, created = TelegramMessage.objects.get_or_create(
@@ -50,7 +57,7 @@ def _save_message(chat_id, message_id, chat_name, sender_id, sender_name,
 
 
 class Command(BaseCommand):
-    help = "Import full Telegram history — privates first, then groups. Skips channels and bots."
+    help = "Import full Telegram history with smart resume. Privates first, then groups."
 
     def handle(self, *args, **options):
         asyncio.run(self._import())
@@ -66,14 +73,12 @@ class Command(BaseCommand):
         me = await client.get_me()
         self.stdout.write(f"Importing full history as {me.first_name} (@{me.username})\n")
 
-        # Collect all dialogs first, split by type
         privates = []
         groups = []
 
         async for dialog in client.iter_dialogs():
             if should_skip(dialog):
-                dtype = dialog_type(dialog)
-                self.stdout.write(f"  [SKIP {dtype}] {dialog.name}")
+                self.stdout.write(f"  [SKIP {dialog_type(dialog)}] {dialog.name}")
                 continue
             if dialog_type(dialog) == "private":
                 privates.append(dialog)
@@ -94,11 +99,23 @@ class Command(BaseCommand):
                 saved = 0
                 skipped = 0
 
-                self.stdout.write(f"  [{idx}/{len(dialogs)}] {name} ...", ending="")
+                # Resume: find oldest message already in DB for this dialog
+                oldest_id = await sync_to_async(_oldest_message_id)(dialog.id)
+
+                if oldest_id is not None and oldest_id <= 1:
+                    # Already have the very first message — nothing older to fetch
+                    self.stdout.write(f"  [{idx}/{len(dialogs)}] {name} ... [already complete, skip]")
+                    continue
+
+                resume_note = f"resuming from msg_id<{oldest_id}" if oldest_id else "full fetch"
+                self.stdout.write(f"  [{idx}/{len(dialogs)}] {name} ({resume_note}) ...", ending="")
                 self.stdout.flush()
 
                 try:
-                    async for msg in client.iter_messages(dialog):
+                    # max_id: fetch only messages with ID strictly less than oldest we have
+                    iter_kwargs = {"max_id": oldest_id} if oldest_id else {}
+
+                    async for msg in client.iter_messages(dialog, **iter_kwargs):
                         media_type = detect_media_type(msg)
                         text = message_text(msg)
 
