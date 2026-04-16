@@ -21,12 +21,16 @@ logger = logging.getLogger(__name__)
 START_DATE = date(2026, 1, 1)
 
 
+BATCH_MAX = 25  # target max messages per Gemini call
+
+
 def _iter_day_chat_batches(start: date, end: date):
     """
-    Yield (chat_id, chat_name, day, messages_qs) for each chat+day combo
-    that has unprocessed messages, in chronological order.
+    Yield (chat_id, chat_name, date_label, messages) for each batch.
+
+    Days are accumulated until the next day would push the batch over BATCH_MAX.
+    A single day with more than BATCH_MAX messages is yielded as-is (no split).
     """
-    from django.db.models.functions import TruncDate
     from django.db.models import Min
 
     qs = (
@@ -37,29 +41,51 @@ def _iter_day_chat_batches(start: date, end: date):
         .order_by("first_msg")
     )
 
-    chat_days_seen = set()
+    seen_chats = set()
     for row in qs:
         chat_id = row["chat_id"]
+        if chat_id in seen_chats:
+            continue
+        seen_chats.add(chat_id)
         chat_name = row["chat_name"]
 
-        # Get all days for this chat that have unprocessed messages
-        days_qs = (
+        days = (
             TelegramMessage.objects
             .filter(chat_id=chat_id, processed=False, date__date__gte=start, date__date__lte=end)
             .dates("date", "day", order="ASC")
         )
-        for day in days_qs:
-            key = (chat_id, day)
-            if key in chat_days_seen:
-                continue
-            chat_days_seen.add(key)
 
-            msgs_qs = (
+        bucket: list = []      # accumulated messages
+        bucket_start: date | None = None
+        bucket_end: date | None = None
+
+        for day in days:
+            day_msgs = list(
                 TelegramMessage.objects
                 .filter(chat_id=chat_id, processed=False, date__date=day)
                 .order_by("date")
             )
-            yield chat_id, chat_name, day, msgs_qs
+            if not day_msgs:
+                continue
+
+            if not bucket:
+                # Start new bucket
+                bucket = day_msgs
+                bucket_start = bucket_end = day
+            elif len(bucket) + len(day_msgs) <= BATCH_MAX:
+                # Fits — merge into current bucket
+                bucket += day_msgs
+                bucket_end = day
+            else:
+                # Flush current bucket, start new one with this day
+                label = bucket_start.isoformat() if bucket_start == bucket_end else f"{bucket_start} → {bucket_end}"
+                yield chat_id, chat_name, label, bucket
+                bucket = day_msgs
+                bucket_start = bucket_end = day
+
+        if bucket:
+            label = bucket_start.isoformat() if bucket_start == bucket_end else f"{bucket_start} → {bucket_end}"
+            yield chat_id, chat_name, label, bucket
 
 
 class Command(BaseCommand):
@@ -135,17 +161,17 @@ class Command(BaseCommand):
         total_todos = 0
         total_msgs_processed = 0
 
-        for chat_id, chat_name, day, msgs_qs in _iter_day_chat_batches(start, end):
+        for chat_id, chat_name, date_label, msgs in _iter_day_chat_batches(start, end):
             if only_chats and chat_id not in only_chats:
                 continue
 
-            msgs = list(msgs_qs)
             if not msgs:
                 continue
 
-            date_str = day.isoformat()
+            # Use the start date of the batch as the reference date for Gemini
+            date_str = msgs[0].date.strftime("%Y-%m-%d")
             self.stdout.write(
-                f"  {date_str} | {chat_name} ({chat_id}) — {len(msgs)} msgs",
+                f"  {date_label} | {chat_name} ({chat_id}) — {len(msgs)} msgs",
                 ending=""
             )
             self.stdout.flush()
