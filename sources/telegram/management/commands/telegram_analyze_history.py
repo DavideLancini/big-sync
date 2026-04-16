@@ -9,9 +9,8 @@ Safe to re-run: already-processed messages are skipped.
 Audio transcription is NOT done here — use telegram_transcribe_audio separately.
 """
 import logging
-import os
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime, timedelta, timezone as dt_timezone
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone
@@ -27,28 +26,35 @@ START_DATE = date(2000, 1, 1)  # effectively no lower bound
 BATCH_MAX = 25  # target max messages per Gemini call
 
 
-def _iter_day_chat_batches(start: date, end: date):
+
+def _iter_day_chat_batches(start: date, end: date, only_chat_id: int | None = None):
     """
     Yield (chat_id, chat_name, date_label, messages) for each batch.
 
     Days are accumulated until the next day would push the batch over BATCH_MAX.
     A single day with more than BATCH_MAX messages is yielded as-is (no split).
 
-    Uses 2 queries per chat (chat list + all messages) instead of 1 per day,
-    so SODA Party (1400+ days) doesn't issue 1400 queries before starting.
+    Uses index-friendly date__gte/date__lt instead of date__date lookups.
+    Loads one chat at a time to avoid pulling 250k rows into memory unnecessarily.
     """
     from django.db.models import Min
 
-    chats = (
-        TelegramMessage.objects
-        .filter(processed=False, date__date__gte=start, date__date__lte=end)
-        .values("chat_id", "chat_name")
-        .annotate(first_msg=Min("date"))
-        .order_by("first_msg")
+    start_dt = datetime(start.year, start.month, start.day, tzinfo=dt_timezone.utc)
+    end_dt = datetime(end.year, end.month, end.day, tzinfo=dt_timezone.utc) + timedelta(days=1)
+
+    base_qs = TelegramMessage.objects.filter(
+        processed=False,
+        date__gte=start_dt,
+        date__lt=end_dt,
     )
 
+    if only_chat_id is not None:
+        chat_rows = base_qs.filter(chat_id=only_chat_id).values("chat_id", "chat_name").annotate(first_msg=Min("date"))
+    else:
+        chat_rows = base_qs.values("chat_id", "chat_name").annotate(first_msg=Min("date")).order_by("first_msg")
+
     seen_chats = set()
-    for row in chats:
+    for row in chat_rows:
         chat_id = row["chat_id"]
         if chat_id in seen_chats:
             continue
@@ -57,7 +63,7 @@ def _iter_day_chat_batches(start: date, end: date):
 
         all_msgs = list(
             TelegramMessage.objects
-            .filter(chat_id=chat_id, processed=False, date__date__gte=start, date__date__lte=end)
+            .filter(chat_id=chat_id, processed=False, date__gte=start_dt, date__lt=end_dt)
             .order_by("date")
         )
 
@@ -137,10 +143,12 @@ class Command(BaseCommand):
                     pass
 
         # --one-chat: auto-select the chat with fewest unprocessed messages
+        start_dt = datetime(start.year, start.month, start.day, tzinfo=dt_timezone.utc)
+        end_dt = datetime(end.year, end.month, end.day, tzinfo=dt_timezone.utc) + timedelta(days=1)
         if options["one_chat"] and not only_chats:
             row = (
                 TelegramMessage.objects
-                .filter(processed=False, date__date__gte=start, date__date__lte=end)
+                .filter(processed=False, date__gte=start_dt, date__lt=end_dt)
                 .values("chat_id", "chat_name")
                 .annotate(n=Count("id"))
                 .order_by("n")
@@ -162,7 +170,8 @@ class Command(BaseCommand):
         total_todos = 0
         total_msgs_processed = 0
 
-        for chat_id, chat_name, date_label, msgs in _iter_day_chat_batches(start, end):
+        only_chat_id = next(iter(only_chats)) if len(only_chats) == 1 else None
+        for chat_id, chat_name, date_label, msgs in _iter_day_chat_batches(start, end, only_chat_id):
             if only_chats and chat_id not in only_chats:
                 continue
 
