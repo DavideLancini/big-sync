@@ -13,8 +13,11 @@ from django.utils import timezone
 from telethon import TelegramClient, events
 from telethon.tl.types import User, Chat, Channel
 
-from sources.telegram.media import detect_media_type, message_text, serialize
-from sources.telegram.models import TelegramMessage
+from sources.telegram.media import (
+    detect_media_type, message_text, serialize,
+    should_ignore_chat, should_ignore_media, download_media,
+)
+from sources.telegram.models import TelegramMessage, MediaType
 
 logger = logging.getLogger(__name__)
 
@@ -27,22 +30,19 @@ def _get_chat_name(entity) -> str:
     return str(getattr(entity, "id", ""))
 
 
-def _save_message(chat_id, message_id, chat_name, sender_id, sender_name,
-                  text, media_type, date, raw):
+def _save_message(chat_id, message_id, defaults):
     obj, created = TelegramMessage.objects.get_or_create(
         chat_id=chat_id,
         message_id=message_id,
-        defaults={
-            "chat_name": chat_name,
-            "sender_id": sender_id,
-            "sender_name": sender_name,
-            "text": text,
-            "media_type": media_type,
-            "date": date,
-            "raw": raw,
-        },
+        defaults=defaults,
     )
     return obj, created
+
+
+def _update_media_path(pk, path):
+    TelegramMessage.objects.filter(pk=pk).update(
+        media_path=path, media_downloaded=True
+    )
 
 
 class Command(BaseCommand):
@@ -76,29 +76,39 @@ class Command(BaseCommand):
                     or getattr(msg.peer_id, "channel_id", None)
                     or msg.chat_id
                 )
+                chat_name = _get_chat_name(chat)
+
+                if should_ignore_chat(chat_name, chat_id):
+                    return
 
                 media_type = detect_media_type(msg)
                 text = message_text(msg)
-                chat_name = _get_chat_name(chat)
                 sender_name = _get_chat_name(sender) if sender else ""
 
-                self.stdout.write(
-                    f"[{media_type}] [{chat_name}] {sender_name}: {text[:80]}"
-                )
+                self.stdout.write(f"[{media_type}] [{chat_name}] {sender_name}: {text[:80]}")
 
                 obj, created = await sync_to_async(_save_message)(
                     chat_id=chat_id,
                     message_id=msg.id,
-                    chat_name=chat_name,
-                    sender_id=sender.id if sender else None,
-                    sender_name=sender_name,
-                    text=text,
-                    media_type=media_type,
-                    date=msg.date or timezone.now(),
-                    raw=serialize(msg.to_dict()),
+                    defaults={
+                        "chat_name": chat_name,
+                        "sender_id": sender.id if sender else None,
+                        "sender_name": sender_name,
+                        "text": text,
+                        "media_type": media_type,
+                        "date": msg.date or timezone.now(),
+                        "raw": serialize(msg.to_dict()),
+                    },
                 )
+
                 status = "saved" if created else "already exists"
                 self.stdout.write(f"  → {status} (id={obj.id})")
+
+                if created and media_type != MediaType.TEXT and not should_ignore_media(chat_name, chat_id):
+                    path = await download_media(client, msg, chat_name)
+                    if path:
+                        await sync_to_async(_update_media_path)(obj.pk, path)
+                        self.stdout.write(f"  → media saved: {path}")
 
             except Exception as e:
                 self.stderr.write(f"Error: {e}")

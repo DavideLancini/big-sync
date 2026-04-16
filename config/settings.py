@@ -80,4 +80,12 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+MEDIA_ROOT = BASE_DIR / "media"
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Telegram
+# Comma-separated chat names/IDs — messages saved, media NOT downloaded
+TELEGRAM_IGNORE_MEDIA = config("TELEGRAM_IGNORE_MEDIA", default="", cast=Csv())
+# Comma-separated chat names/IDs — completely ignored (no DB save, no media)
+TELEGRAM_IGNORE_CHATS = config("TELEGRAM_IGNORE_CHATS", default="", cast=Csv())

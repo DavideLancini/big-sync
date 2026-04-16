@@ -13,8 +13,11 @@ from django.utils import timezone
 from telethon import TelegramClient
 from telethon.tl.types import User, Chat, Channel
 
-from sources.telegram.media import detect_media_type, message_text, serialize
-from sources.telegram.models import TelegramMessage
+from sources.telegram.media import (
+    detect_media_type, message_text, serialize,
+    should_ignore_chat, should_ignore_media, download_media,
+)
+from sources.telegram.models import TelegramMessage, MediaType
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +92,10 @@ class Command(BaseCommand):
             ):
                 continue
 
+            if should_ignore_chat(name, dialog.id):
+                self.stdout.write(f"  [SKIP] {name} (in TELEGRAM_IGNORE_CHATS)")
+                continue
+
             dialog_count += 1
             saved = 0
             skipped = 0
@@ -124,6 +131,14 @@ class Command(BaseCommand):
                     )
                     if created:
                         saved += 1
+                        if media_type != MediaType.TEXT and not should_ignore_media(name, dialog.id):
+                            path = await download_media(client, msg, name)
+                            if path:
+                                await sync_to_async(
+                                    TelegramMessage.objects.filter(
+                                        chat_id=dialog.id, message_id=msg.id
+                                    ).update
+                                )(media_path=path, media_downloaded=True)
                     else:
                         skipped += 1
 
