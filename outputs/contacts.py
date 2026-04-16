@@ -1,10 +1,11 @@
-"""Write contacts to Google Contacts (People API)."""
+"""Write contacts to Google Contacts (People API), using local cache for dedup."""
 import logging
 import re
 
 from googleapiclient.discovery import build
 
 from common.google_auth import get_credentials
+from common.models import Contact
 
 logger = logging.getLogger(__name__)
 
@@ -17,104 +18,31 @@ def _build_service():
     return build("people", "v1", credentials=get_credentials())
 
 
-def upsert_contact(data: dict) -> str | None:
-    """
-    Create or update a Google Contact.
-    Returns the resource name (e.g. 'people/c12345') or None on error.
-    data keys: name, phone, email, company, role, notes
-    """
-    name = (data.get("name") or "").strip()
-    phone = (data.get("phone") or "").strip()
-    email = (data.get("email") or "").strip()
+def _find_existing_local(name: str, phone: str, email: str) -> Contact | None:
+    """Look up an existing contact in the local cache."""
+    norm_phone = _normalize_phone(phone)
+    norm_email = (email or "").lower().strip()
+    norm_name = (name or "").strip()
 
-    if not name and not phone and not email:
-        return None
+    # Try email first (most reliable)
+    if norm_email:
+        c = Contact.objects.filter(emails__contains=[norm_email]).first()
+        if c:
+            return c
 
-    service = _build_service()
+    # Try phone
+    if norm_phone:
+        c = Contact.objects.filter(phones__contains=[norm_phone]).first()
+        if c:
+            return c
 
-    # Search for existing contact
-    existing = _find_existing(service, name, phone, email)
+    # Try name (case-insensitive exact match)
+    if norm_name:
+        c = Contact.objects.filter(name__iexact=norm_name).first()
+        if c:
+            return c
 
-    if existing:
-        return _enrich_contact(service, existing, data)
-    else:
-        return _create_contact(service, data)
-
-
-def _find_existing(service, name, phone, email) -> dict | None:
-    """Search existing contacts by name, phone or email."""
-    queries = [q for q in [name, phone, email] if q]
-    for query in queries:
-        try:
-            result = service.people().searchContacts(
-                query=query,
-                readMask="names,phoneNumbers,emailAddresses,organizations,biographies",
-            ).execute()
-            results = result.get("results", [])
-            if results:
-                return results[0]["person"]
-        except Exception:
-            logger.exception("Error searching contact: %s", query)
     return None
-
-
-def _create_contact(service, data: dict) -> str | None:
-    body = _build_body(data)
-    try:
-        result = service.people().createContact(body=body).execute()
-        logger.info("Created contact: %s", data.get("name"))
-        return result.get("resourceName")
-    except Exception:
-        logger.exception("Error creating contact: %s", data)
-        return None
-
-
-def _enrich_contact(service, existing: dict, data: dict) -> str | None:
-    """Add new fields to existing contact without overwriting existing ones."""
-    resource_name = existing.get("resourceName")
-    update_mask_fields = []
-    body = {"etag": existing.get("etag", "")}
-
-    # Add phone if not present
-    existing_phones = {_normalize_phone(p.get("value", ""))
-                       for p in existing.get("phoneNumbers", [])}
-    new_phone = _normalize_phone(data.get("phone") or "")
-    if new_phone and new_phone not in existing_phones:
-        body["phoneNumbers"] = existing.get("phoneNumbers", []) + [
-            {"value": data["phone"], "type": "other"}
-        ]
-        update_mask_fields.append("phoneNumbers")
-
-    # Add email if not present
-    existing_emails = {e.get("value", "").lower()
-                       for e in existing.get("emailAddresses", [])}
-    new_email = (data.get("email") or "").lower()
-    if new_email and new_email not in existing_emails:
-        body["emailAddresses"] = existing.get("emailAddresses", []) + [
-            {"value": data["email"], "type": "other"}
-        ]
-        update_mask_fields.append("emailAddresses")
-
-    # Add org/role if not present
-    if data.get("company") and not existing.get("organizations"):
-        body["organizations"] = [{"name": data["company"], "title": data.get("role") or ""}]
-        update_mask_fields.append("organizations")
-
-    if not update_mask_fields:
-        logger.debug("Contact already up to date: %s", data.get("name"))
-        return resource_name
-
-    try:
-        service.people().updateContact(
-            resourceName=resource_name,
-            updatePersonFields=",".join(update_mask_fields),
-            body=body,
-        ).execute()
-        logger.info("Enriched contact: %s (%s)", data.get("name"), update_mask_fields)
-        return resource_name
-    except Exception:
-        logger.exception("Error enriching contact: %s", resource_name)
-        return resource_name
 
 
 def _build_body(data: dict) -> dict:
@@ -131,3 +59,118 @@ def _build_body(data: dict) -> dict:
     if data.get("notes"):
         body["biographies"] = [{"value": data["notes"], "contentType": "TEXT_PLAIN"}]
     return body
+
+
+def _create_contact(service, data: dict) -> str | None:
+    body = _build_body(data)
+    try:
+        result = service.people().createContact(body=body).execute()
+        resource_name = result.get("resourceName", "")
+        logger.info("Created contact: %s", data.get("name"))
+
+        # Save to local cache
+        norm_phone = _normalize_phone(data.get("phone") or "")
+        norm_email = (data.get("email") or "").lower().strip()
+        Contact.objects.create(
+            resource_name=resource_name,
+            name=(data.get("name") or "").strip(),
+            phones=[norm_phone] if norm_phone else [],
+            emails=[norm_email] if norm_email else [],
+            company=(data.get("company") or "").strip(),
+            role=(data.get("role") or "").strip(),
+            notes=(data.get("notes") or "").strip(),
+        )
+        return resource_name
+    except Exception:
+        logger.exception("Error creating contact: %s", data)
+        return None
+
+
+def _enrich_contact(service, local: Contact, data: dict) -> str | None:
+    """Add new fields to existing contact without overwriting, both on Google and locally."""
+    resource_name = local.resource_name
+    if not resource_name:
+        return None
+
+    # Fetch current Google state for etag
+    try:
+        existing = service.people().get(
+            resourceName=resource_name,
+            personFields="names,phoneNumbers,emailAddresses,organizations,biographies",
+        ).execute()
+    except Exception:
+        logger.exception("Error fetching contact for enrichment: %s", resource_name)
+        return resource_name
+
+    update_mask_fields = []
+    body = {"etag": existing.get("etag", "")}
+    local_changed = False
+
+    # Phone
+    new_phone = _normalize_phone(data.get("phone") or "")
+    if new_phone and new_phone not in local.phones:
+        body["phoneNumbers"] = existing.get("phoneNumbers", []) + [
+            {"value": data["phone"], "type": "other"}
+        ]
+        update_mask_fields.append("phoneNumbers")
+        local.phones = local.phones + [new_phone]
+        local_changed = True
+
+    # Email
+    new_email = (data.get("email") or "").lower().strip()
+    if new_email and new_email not in local.emails:
+        body["emailAddresses"] = existing.get("emailAddresses", []) + [
+            {"value": data["email"], "type": "other"}
+        ]
+        update_mask_fields.append("emailAddresses")
+        local.emails = local.emails + [new_email]
+        local_changed = True
+
+    # Company/role
+    if data.get("company") and not existing.get("organizations"):
+        body["organizations"] = [{"name": data["company"], "title": data.get("role") or ""}]
+        update_mask_fields.append("organizations")
+        local.company = data["company"]
+        local.role = data.get("role") or ""
+        local_changed = True
+
+    if not update_mask_fields:
+        logger.debug("Contact already up to date: %s", data.get("name"))
+        return resource_name
+
+    try:
+        service.people().updateContact(
+            resourceName=resource_name,
+            updatePersonFields=",".join(update_mask_fields),
+            body=body,
+        ).execute()
+        if local_changed:
+            local.save()
+        logger.info("Enriched contact: %s (%s)", data.get("name"), update_mask_fields)
+        return resource_name
+    except Exception:
+        logger.exception("Error enriching contact: %s", resource_name)
+        return resource_name
+
+
+def upsert_contact(data: dict) -> str | None:
+    """
+    Create or enrich a Google Contact, using local cache for dedup.
+    Returns resource name or None on error.
+    data keys: name, phone, email, company, role, notes
+    """
+    name = (data.get("name") or "").strip()
+    phone = (data.get("phone") or "").strip()
+    email = (data.get("email") or "").strip()
+
+    if not name and not phone and not email:
+        return None
+
+    local = _find_existing_local(name, phone, email)
+
+    if local:
+        service = _build_service()
+        return _enrich_contact(service, local, data)
+    else:
+        service = _build_service()
+        return _create_contact(service, data)
