@@ -3,7 +3,6 @@ import json
 import logging
 import mimetypes
 import os
-import signal
 
 from google import genai
 from google.genai import types
@@ -19,7 +18,10 @@ AUDIO_MEDIA_TYPES = {"voice", "audio", "video_note"}
 def _get_client() -> genai.Client:
     global _client
     if _client is None:
-        _client = genai.Client(api_key=config("GEMINI_API_KEY"))
+        _client = genai.Client(
+            api_key=config("GEMINI_API_KEY"),
+            http_options=types.HttpOptions(timeout=60_000),  # 60s — applies to all requests
+        )
     return _client
 
 
@@ -39,23 +41,14 @@ def _audio_mime_type(path: str) -> str:
     }.get(ext, "audio/ogg")
 
 
-TRANSCRIBE_TIMEOUT = 60  # seconds
-
-
 def transcribe_audio(file_path: str, model: str = "gemini-2.5-flash") -> str:
     """
     Transcribe an audio/voice file using Gemini File API.
     Returns the transcription text, or empty string on error.
-    Raises TimeoutError after TRANSCRIBE_TIMEOUT seconds (uses SIGALRM — Linux only).
+    Raises on API error (60s HTTP timeout set at client level).
     """
     client = _get_client()
     mime_type = _audio_mime_type(file_path)
-
-    def _handler(signum, frame):
-        raise TimeoutError(f"Transcription timed out after {TRANSCRIBE_TIMEOUT}s: {file_path}")
-
-    signal.signal(signal.SIGALRM, _handler)
-    signal.alarm(TRANSCRIBE_TIMEOUT)
     uploaded = None
     try:
         with open(file_path, "rb") as f:
@@ -72,7 +65,6 @@ def transcribe_audio(file_path: str, model: str = "gemini-2.5-flash") -> str:
         )
         return response.text.strip()
     finally:
-        signal.alarm(0)  # cancel alarm
         if uploaded:
             try:
                 client.files.delete(name=uploaded.name)
