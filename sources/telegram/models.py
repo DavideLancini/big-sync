@@ -1,6 +1,19 @@
 from django.db import models
 
 
+class MediaType(models.TextChoices):
+    TEXT = "text", "Text"
+    PHOTO = "photo", "Photo"
+    VIDEO = "video", "Video"
+    VOICE = "voice", "Voice"
+    AUDIO = "audio", "Audio"
+    STICKER = "sticker", "Sticker"
+    GIF = "gif", "GIF"
+    VIDEO_NOTE = "video_note", "Video Note"
+    DOCUMENT = "document", "Document"
+    UNKNOWN = "unknown", "Unknown"
+
+
 class TelegramMessage(models.Model):
     message_id = models.BigIntegerField()
     chat_id = models.BigIntegerField()
@@ -8,6 +21,11 @@ class TelegramMessage(models.Model):
     sender_id = models.BigIntegerField(null=True, blank=True)
     sender_name = models.CharField(max_length=255, blank=True)
     text = models.TextField(blank=True)
+    media_type = models.CharField(
+        max_length=20, choices=MediaType.choices, default=MediaType.TEXT
+    )
+    media_downloaded = models.BooleanField(default=False)
+    media_path = models.CharField(max_length=500, blank=True)
     date = models.DateTimeField()
     raw = models.JSONField(default=dict)
     processed = models.BooleanField(default=False)
@@ -18,4 +36,5 @@ class TelegramMessage(models.Model):
         ordering = ["-date"]
 
     def __str__(self):
-        return f"[{self.chat_name}] {self.sender_name}: {self.text[:60]}"
+        label = self.text[:60] if self.text else f"[{self.media_type}]"
+        return f"[{self.chat_name}] {self.sender_name}: {label}"

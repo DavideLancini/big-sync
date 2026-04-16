@@ -4,7 +4,6 @@ Receives all incoming messages and saves them to the database.
 Run as a systemd service: manage.py telegram_listener
 """
 import asyncio
-import datetime
 import logging
 
 from asgiref.sync import sync_to_async
@@ -14,41 +13,22 @@ from django.utils import timezone
 from telethon import TelegramClient, events
 from telethon.tl.types import User, Chat, Channel
 
+from sources.telegram.media import detect_media_type, message_text, serialize
 from sources.telegram.models import TelegramMessage
 
 logger = logging.getLogger(__name__)
 
 
-def _serialize(obj):
-    """Recursively convert non-JSON-serializable types in Telethon dicts."""
-    if isinstance(obj, dict):
-        return {k: _serialize(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_serialize(v) for v in obj]
-    if isinstance(obj, (datetime.datetime, datetime.date)):
-        return obj.isoformat()
-    if isinstance(obj, bytes):
-        return obj.hex()
-    return obj
+def _get_chat_name(entity) -> str:
+    if isinstance(entity, User):
+        return f"{entity.first_name or ''} {entity.last_name or ''}".strip()
+    if isinstance(entity, (Chat, Channel)):
+        return entity.title or ""
+    return str(getattr(entity, "id", ""))
 
 
-def _get_chat_name(chat) -> str:
-    if isinstance(chat, User):
-        return f"{chat.first_name or ''} {chat.last_name or ''}".strip()
-    if isinstance(chat, (Chat, Channel)):
-        return chat.title or ""
-    return str(getattr(chat, "id", ""))
-
-
-def _get_sender_name(sender) -> str:
-    if sender is None:
-        return ""
-    if isinstance(sender, User):
-        return f"{sender.first_name or ''} {sender.last_name or ''}".strip()
-    return str(getattr(sender, "id", ""))
-
-
-def _save_message(chat_id, message_id, chat_name, sender_id, sender_name, text, date, raw):
+def _save_message(chat_id, message_id, chat_name, sender_id, sender_name,
+                  text, media_type, date, raw):
     obj, created = TelegramMessage.objects.get_or_create(
         chat_id=chat_id,
         message_id=message_id,
@@ -57,6 +37,7 @@ def _save_message(chat_id, message_id, chat_name, sender_id, sender_name, text, 
             "sender_id": sender_id,
             "sender_name": sender_name,
             "text": text,
+            "media_type": media_type,
             "date": date,
             "raw": raw,
         },
@@ -89,16 +70,21 @@ class Command(BaseCommand):
                 chat = await event.get_chat()
                 sender = await event.get_sender()
 
-                chat_id = getattr(msg.peer_id, "user_id", None) \
-                       or getattr(msg.peer_id, "chat_id", None) \
-                       or getattr(msg.peer_id, "channel_id", None) \
-                       or msg.chat_id
+                chat_id = (
+                    getattr(msg.peer_id, "user_id", None)
+                    or getattr(msg.peer_id, "chat_id", None)
+                    or getattr(msg.peer_id, "channel_id", None)
+                    or msg.chat_id
+                )
 
+                media_type = detect_media_type(msg)
+                text = message_text(msg)
                 chat_name = _get_chat_name(chat)
-                sender_name = _get_sender_name(sender)
-                text = msg.message or ""
+                sender_name = _get_chat_name(sender) if sender else ""
 
-                self.stdout.write(f"Message from [{chat_name}] {sender_name}: {text[:80]}")
+                self.stdout.write(
+                    f"[{media_type}] [{chat_name}] {sender_name}: {text[:80]}"
+                )
 
                 obj, created = await sync_to_async(_save_message)(
                     chat_id=chat_id,
@@ -107,8 +93,9 @@ class Command(BaseCommand):
                     sender_id=sender.id if sender else None,
                     sender_name=sender_name,
                     text=text,
+                    media_type=media_type,
                     date=msg.date or timezone.now(),
-                    raw=_serialize(msg.to_dict()),
+                    raw=serialize(msg.to_dict()),
                 )
                 status = "saved" if created else "already exists"
                 self.stdout.write(f"  → {status} (id={obj.id})")

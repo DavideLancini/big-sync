@@ -4,7 +4,6 @@ Iterates all dialogs (chats, groups, channels) and saves every message.
 Safe to re-run: unique_together constraint skips duplicates.
 """
 import asyncio
-import datetime
 import logging
 
 from asgiref.sync import sync_to_async
@@ -14,24 +13,13 @@ from django.utils import timezone
 from telethon import TelegramClient
 from telethon.tl.types import User, Chat, Channel
 
+from sources.telegram.media import detect_media_type, message_text, serialize
 from sources.telegram.models import TelegramMessage
 
 logger = logging.getLogger(__name__)
 
 
-def _serialize(obj):
-    if isinstance(obj, dict):
-        return {k: _serialize(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_serialize(v) for v in obj]
-    if isinstance(obj, (datetime.datetime, datetime.date)):
-        return obj.isoformat()
-    if isinstance(obj, bytes):
-        return obj.hex()
-    return obj
-
-
-def _get_chat_name(entity) -> str:
+def _get_entity_name(entity) -> str:
     if isinstance(entity, User):
         return f"{entity.first_name or ''} {entity.last_name or ''}".strip()
     if isinstance(entity, (Chat, Channel)):
@@ -39,7 +27,8 @@ def _get_chat_name(entity) -> str:
     return str(getattr(entity, "id", ""))
 
 
-def _save_message(chat_id, message_id, chat_name, sender_id, sender_name, text, date, raw):
+def _save_message(chat_id, message_id, chat_name, sender_id, sender_name,
+                  text, media_type, date, raw):
     obj, created = TelegramMessage.objects.get_or_create(
         chat_id=chat_id,
         message_id=message_id,
@@ -48,6 +37,7 @@ def _save_message(chat_id, message_id, chat_name, sender_id, sender_name, text, 
             "sender_id": sender_id,
             "sender_name": sender_name,
             "text": text,
+            "media_type": media_type,
             "date": date,
             "raw": raw,
         },
@@ -93,7 +83,10 @@ class Command(BaseCommand):
         async for dialog in client.iter_dialogs():
             name = dialog.name or str(dialog.id)
 
-            if dialog_filter and dialog_filter.lower() not in name.lower() and str(dialog.id) != dialog_filter:
+            if dialog_filter and (
+                dialog_filter.lower() not in name.lower()
+                and str(dialog.id) != dialog_filter
+            ):
                 continue
 
             dialog_count += 1
@@ -104,26 +97,30 @@ class Command(BaseCommand):
 
             try:
                 async for msg in client.iter_messages(dialog, limit=limit):
-                    if not msg.message:
+                    media_type = detect_media_type(msg)
+                    text = message_text(msg)
+
+                    # Skip service messages with no content
+                    if not text and media_type == "text":
+                        skipped += 1
                         continue
 
-                    chat_id = dialog.id
                     sender_id = None
                     sender_name = ""
-
                     if msg.sender:
                         sender_id = msg.sender.id
-                        sender_name = _get_chat_name(msg.sender)
+                        sender_name = _get_entity_name(msg.sender)
 
                     created = await sync_to_async(_save_message)(
-                        chat_id=chat_id,
+                        chat_id=dialog.id,
                         message_id=msg.id,
                         chat_name=name,
                         sender_id=sender_id,
                         sender_name=sender_name,
-                        text=msg.message,
+                        text=text,
+                        media_type=media_type,
                         date=msg.date or timezone.now(),
-                        raw=_serialize(msg.to_dict()),
+                        raw=serialize(msg.to_dict()),
                     )
                     if created:
                         saved += 1
@@ -132,6 +129,7 @@ class Command(BaseCommand):
 
             except Exception as e:
                 self.stdout.write(f" ERROR: {e}")
+                logger.exception("Error importing dialog %s", name)
                 continue
 
             self.stdout.write(f" +{saved} saved, {skipped} skipped")
@@ -140,5 +138,5 @@ class Command(BaseCommand):
 
         await client.disconnect()
         self.stdout.write(self.style.SUCCESS(
-            f"\nDone. {dialog_count} dialogs — {total_saved} saved, {total_skipped} already present."
+            f"\nDone. {dialog_count} dialogs — {total_saved} saved, {total_skipped} already present/skipped."
         ))
