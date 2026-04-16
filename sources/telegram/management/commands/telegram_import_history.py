@@ -34,8 +34,12 @@ def _get_entity_name(entity) -> str:
 
 def _oldest_message_id(chat_id) -> int | None:
     """Return the smallest message_id we already have for this chat, or None."""
-    result = TelegramMessage.objects.filter(chat_id=chat_id).order_by("message_id").values_list("message_id", flat=True).first()
-    return result
+    return TelegramMessage.objects.filter(chat_id=chat_id).order_by("message_id").values_list("message_id", flat=True).first()
+
+
+def _newest_message_id(chat_id) -> int | None:
+    """Return the largest message_id we already have for this chat, or None."""
+    return TelegramMessage.objects.filter(chat_id=chat_id).order_by("-message_id").values_list("message_id", flat=True).first()
 
 
 def _save_message(chat_id, message_id, chat_name, sender_id, sender_name,
@@ -127,6 +131,8 @@ class Command(BaseCommand):
         total_saved = 0
         total_skipped = 0
 
+        all_dialogs = privates + groups
+
         for phase, dialogs in [("PRIVATE", privates), ("GROUP", groups)]:
             self.stdout.write(f"\n{'─'*60}")
             self.stdout.write(f"Phase: {phase} ({len(dialogs)} dialogs)\n")
@@ -198,7 +204,57 @@ class Command(BaseCommand):
                 total_saved += saved
                 total_skipped += skipped
 
+        # ── Catch-up: fetch messages newer than our most recent, for all dialogs ──
+        # Captures messages that arrived while the listener was stopped during import.
+        self.stdout.write(f"\n{'─'*60}")
+        self.stdout.write("Phase: CATCH-UP (new messages since import started)\n")
+
+        catchup_saved = 0
+        for dialog in all_dialogs:
+            newest_id = await sync_to_async(_newest_message_id)(dialog.id)
+            if not newest_id:
+                continue
+            name = dialog.name or str(dialog.id)
+            saved = 0
+            try:
+                async for msg in client.iter_messages(dialog, min_id=newest_id):
+                    media_type = detect_media_type(msg)
+                    text = message_text(msg)
+                    if not text and media_type == MediaType.TEXT:
+                        continue
+                    sender_id = None
+                    sender_name = ""
+                    if msg.sender:
+                        sender_id = msg.sender.id
+                        sender_name = _get_entity_name(msg.sender)
+                    obj, created = await sync_to_async(_save_message)(
+                        chat_id=dialog.id,
+                        message_id=msg.id,
+                        chat_name=name,
+                        sender_id=sender_id,
+                        sender_name=sender_name,
+                        text=text,
+                        media_type=media_type,
+                        date=msg.date or timezone.now(),
+                        raw=serialize(msg.to_dict()),
+                    )
+                    if created:
+                        saved += 1
+                        if media_type != MediaType.TEXT:
+                            path = await download_media(client, msg, name)
+                            if path:
+                                await sync_to_async(
+                                    TelegramMessage.objects.filter(pk=obj.pk).update
+                                )(media_path=path, media_downloaded=True)
+            except Exception as e:
+                self.stdout.write(f"  [{name}] catch-up ERROR: {e}")
+                continue
+            if saved:
+                self.stdout.write(f"  {name}: +{saved} catch-up")
+                catchup_saved += saved
+
+        total_saved += catchup_saved
         await client.disconnect()
         self.stdout.write(self.style.SUCCESS(
-            f"\nDone. {total_saved} messages saved, {total_skipped} skipped."
+            f"\nDone. {total_saved} messages saved ({catchup_saved} catch-up), {total_skipped} skipped."
         ))
