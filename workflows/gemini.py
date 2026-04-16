@@ -3,6 +3,7 @@ import json
 import logging
 import mimetypes
 import os
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
 from google import genai
 from google.genai import types
@@ -38,34 +39,45 @@ def _audio_mime_type(path: str) -> str:
     }.get(ext, "audio/ogg")
 
 
+TRANSCRIBE_TIMEOUT = 60  # seconds
+
+
 def transcribe_audio(file_path: str, model: str = "gemini-2.5-flash") -> str:
     """
     Transcribe an audio/voice file using Gemini File API.
     Returns the transcription text, or empty string on error.
-    Raises on API error.
+    Raises on API error or timeout (60s).
     """
     client = _get_client()
     mime_type = _audio_mime_type(file_path)
 
-    with open(file_path, "rb") as f:
-        uploaded = client.files.upload(
-            file=f,
-            config=types.UploadFileConfig(mime_type=mime_type),
-        )
-    try:
-        response = client.models.generate_content(
-            model=model,
-            contents=[
-                types.Part.from_uri(file_uri=uploaded.uri, mime_type=mime_type),
-                "Trascrivi questo messaggio vocale parola per parola. Rispondi solo con la trascrizione, nessun altro testo.",
-            ],
-        )
-        return response.text.strip()
-    finally:
+    def _run():
+        with open(file_path, "rb") as f:
+            uploaded = client.files.upload(
+                file=f,
+                config=types.UploadFileConfig(mime_type=mime_type),
+            )
         try:
-            client.files.delete(name=uploaded.name)
-        except Exception:
-            pass
+            response = client.models.generate_content(
+                model=model,
+                contents=[
+                    types.Part.from_uri(file_uri=uploaded.uri, mime_type=mime_type),
+                    "Trascrivi questo messaggio vocale parola per parola. Rispondi solo con la trascrizione, nessun altro testo.",
+                ],
+            )
+            return response.text.strip()
+        finally:
+            try:
+                client.files.delete(name=uploaded.name)
+            except Exception:
+                pass
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(_run)
+        try:
+            return future.result(timeout=TRANSCRIBE_TIMEOUT)
+        except FuturesTimeoutError:
+            raise TimeoutError(f"Transcription timed out after {TRANSCRIBE_TIMEOUT}s: {file_path}")
 
 
 def extract_json(text: str) -> dict:

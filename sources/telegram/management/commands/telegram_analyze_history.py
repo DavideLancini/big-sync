@@ -183,19 +183,26 @@ class Command(BaseCommand):
                 continue
 
             # Transcribe audio messages that have a downloaded file
+            import os as _os
             for m in msgs:
                 if m.media_type in AUDIO_MEDIA_TYPES and m.media_path and not m.transcription:
                     abs_path = f"/var/www/big-sync/media/{m.media_path}"
-                    if not __import__("os").path.exists(abs_path):
+                    if not _os.path.exists(abs_path):
+                        self.stdout.write(f"\n    [audio {m.pk}: file not found, skipping]", ending="")
                         continue
+                    self.stdout.write(f"\n    [transcribing {m.pk} ({_os.path.getsize(abs_path)//1024}KB)...]", ending="")
+                    self.stdout.flush()
                     try:
                         t = transcribe_audio(abs_path)
                         if t:
                             TelegramMessage.objects.filter(pk=m.pk).update(transcription=t)
                             m.transcription = t
-                            self.stdout.write(f"\n    [transcribed {m.pk}]", ending="")
+                            self.stdout.write(f" done ({len(t)} chars)", ending="")
+                        else:
+                            self.stdout.write(f" empty response", ending="")
                     except Exception as e:
-                        self.stdout.write(f"\n    [transcription error {m.pk}: {e}]", ending="")
+                        self.stdout.write(f" ERROR: {e}", ending="")
+                    self.stdout.flush()
 
             batch_data = [
                 {
