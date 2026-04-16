@@ -85,7 +85,5 @@ MEDIA_ROOT = BASE_DIR / "media"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Telegram
-# Comma-separated chat names/IDs — messages saved, media NOT downloaded
-TELEGRAM_IGNORE_MEDIA = config("TELEGRAM_IGNORE_MEDIA", default="", cast=Csv())
-# Comma-separated chat names/IDs — completely ignored (no DB save, no media)
-TELEGRAM_IGNORE_CHATS = config("TELEGRAM_IGNORE_CHATS", default="", cast=Csv())
+# Broadcast channels and bots are skipped automatically.
+# No manual ignore lists needed.

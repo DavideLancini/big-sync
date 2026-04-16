@@ -5,9 +5,40 @@ import unicodedata
 from pathlib import Path
 
 from django.conf import settings
+from telethon.tl.types import User, Channel, Chat
 
 from sources.telegram.models import MediaType
 
+
+# ── Dialog type helpers ────────────────────────────────────────────────────────
+
+def dialog_type(dialog) -> str:
+    """Return 'private', 'group', 'channel', or 'bot'."""
+    entity = dialog.entity
+    if isinstance(entity, User):
+        return "bot" if entity.bot else "private"
+    if isinstance(entity, Channel):
+        return "group" if entity.megagroup else "channel"
+    if isinstance(entity, Chat):
+        return "group"
+    return "unknown"
+
+
+def should_skip(dialog) -> bool:
+    """Skip broadcast channels and bots (dialog object)."""
+    return dialog_type(dialog) in ("channel", "bot")
+
+
+def should_skip_entity(entity) -> bool:
+    """Skip broadcast channels and bots (raw entity, for use in listener)."""
+    if isinstance(entity, User):
+        return entity.bot
+    if isinstance(entity, Channel):
+        return not entity.megagroup  # megagroup=False → broadcast channel
+    return False
+
+
+# ── Media helpers ──────────────────────────────────────────────────────────────
 
 def detect_media_type(msg) -> str:
     if msg.sticker:
@@ -59,6 +90,8 @@ def serialize(obj):
     return obj
 
 
+# ── Media download ─────────────────────────────────────────────────────────────
+
 def _slugify(value: str) -> str:
     value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
     value = re.sub(r"[^\w\s-]", "", value).strip().lower()
@@ -70,24 +103,6 @@ def chat_media_dir(chat_name: str) -> Path:
     path = Path(settings.MEDIA_ROOT) / "telegram" / slug
     path.mkdir(parents=True, exist_ok=True)
     return path
-
-
-def _in_list(chat_name: str, chat_id, items) -> bool:
-    name_lower = (chat_name or "").lower()
-    chat_id_str = str(chat_id)
-    for item in items:
-        item = item.strip()
-        if item.lower() == name_lower or item == chat_id_str:
-            return True
-    return False
-
-
-def should_ignore_chat(chat_name: str, chat_id) -> bool:
-    return _in_list(chat_name, chat_id, getattr(settings, "TELEGRAM_IGNORE_CHATS", []))
-
-
-def should_ignore_media(chat_name: str, chat_id) -> bool:
-    return _in_list(chat_name, chat_id, getattr(settings, "TELEGRAM_IGNORE_MEDIA", []))
 
 
 async def download_media(client, msg, chat_name: str) -> str | None:

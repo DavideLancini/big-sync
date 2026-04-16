@@ -15,7 +15,7 @@ from telethon.tl.types import User, Chat, Channel
 
 from sources.telegram.media import (
     detect_media_type, message_text, serialize,
-    should_ignore_chat, should_ignore_media, download_media,
+    should_skip_entity, download_media,
 )
 from sources.telegram.models import TelegramMessage, MediaType
 
@@ -78,7 +78,7 @@ class Command(BaseCommand):
                 )
                 chat_name = _get_chat_name(chat)
 
-                if should_ignore_chat(chat_name, chat_id):
+                if should_skip_entity(chat):
                     return
 
                 media_type = detect_media_type(msg)
@@ -104,7 +104,7 @@ class Command(BaseCommand):
                 status = "saved" if created else "already exists"
                 self.stdout.write(f"  → {status} (id={obj.id})")
 
-                if created and media_type != MediaType.TEXT and not should_ignore_media(chat_name, chat_id):
+                if created and media_type != MediaType.TEXT:
                     path = await download_media(client, msg, chat_name)
                     if path:
                         await sync_to_async(_update_media_path)(obj.pk, path)

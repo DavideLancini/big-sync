@@ -1,7 +1,8 @@
 """
-One-time bulk import of all Telegram message history.
-Iterates all dialogs (chats, groups, channels) and saves every message.
-Safe to re-run: unique_together constraint skips duplicates.
+Full Telegram history import.
+Order: private chats first, then groups.
+Skips broadcast channels and bots entirely.
+Safe to re-run: unique_together skips duplicates.
 """
 import asyncio
 import logging
@@ -11,11 +12,10 @@ from decouple import config
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from telethon import TelegramClient
-from telethon.tl.types import User, Chat, Channel
 
 from sources.telegram.media import (
     detect_media_type, message_text, serialize,
-    should_ignore_chat, should_ignore_media, download_media,
+    dialog_type, should_skip, download_media,
 )
 from sources.telegram.models import TelegramMessage, MediaType
 
@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def _get_entity_name(entity) -> str:
+    from telethon.tl.types import User, Chat, Channel
     if isinstance(entity, User):
         return f"{entity.first_name or ''} {entity.last_name or ''}".strip()
     if isinstance(entity, (Chat, Channel)):
@@ -45,30 +46,16 @@ def _save_message(chat_id, message_id, chat_name, sender_id, sender_name,
             "raw": raw,
         },
     )
-    return created
+    return obj, created
 
 
 class Command(BaseCommand):
-    help = "Import full Telegram message history (safe to re-run)"
-
-    def add_arguments(self, parser):
-        parser.add_argument(
-            "--limit",
-            type=int,
-            default=None,
-            help="Max messages per dialog (default: unlimited)",
-        )
-        parser.add_argument(
-            "--dialog",
-            type=str,
-            default=None,
-            help="Import only a specific dialog by name or ID",
-        )
+    help = "Import full Telegram history — privates first, then groups. Skips channels and bots."
 
     def handle(self, *args, **options):
-        asyncio.run(self._import(options["limit"], options["dialog"]))
+        asyncio.run(self._import())
 
-    async def _import(self, limit, dialog_filter):
+    async def _import(self):
         api_id = config("TELEGRAM_API_ID", cast=int)
         api_hash = config("TELEGRAM_API_HASH")
         session_name = config("TELEGRAM_SESSION_NAME", default="big_sync_telegram")
@@ -77,81 +64,87 @@ class Command(BaseCommand):
         await client.start()
 
         me = await client.get_me()
-        self.stdout.write(f"Importing history as {me.first_name} (@{me.username})\n")
+        self.stdout.write(f"Importing full history as {me.first_name} (@{me.username})\n")
+
+        # Collect all dialogs first, split by type
+        privates = []
+        groups = []
+
+        async for dialog in client.iter_dialogs():
+            if should_skip(dialog):
+                dtype = dialog_type(dialog)
+                self.stdout.write(f"  [SKIP {dtype}] {dialog.name}")
+                continue
+            if dialog_type(dialog) == "private":
+                privates.append(dialog)
+            else:
+                groups.append(dialog)
+
+        self.stdout.write(f"\n{len(privates)} private chats, {len(groups)} groups\n")
 
         total_saved = 0
         total_skipped = 0
-        dialog_count = 0
 
-        async for dialog in client.iter_dialogs():
-            name = dialog.name or str(dialog.id)
+        for phase, dialogs in [("PRIVATE", privates), ("GROUP", groups)]:
+            self.stdout.write(f"\n{'─'*60}")
+            self.stdout.write(f"Phase: {phase} ({len(dialogs)} dialogs)\n")
 
-            if dialog_filter and (
-                dialog_filter.lower() not in name.lower()
-                and str(dialog.id) != dialog_filter
-            ):
-                continue
+            for idx, dialog in enumerate(dialogs, 1):
+                name = dialog.name or str(dialog.id)
+                saved = 0
+                skipped = 0
 
-            if should_ignore_chat(name, dialog.id):
-                self.stdout.write(f"  [SKIP] {name} (in TELEGRAM_IGNORE_CHATS)")
-                continue
+                self.stdout.write(f"  [{idx}/{len(dialogs)}] {name} ...", ending="")
+                self.stdout.flush()
 
-            dialog_count += 1
-            saved = 0
-            skipped = 0
+                try:
+                    async for msg in client.iter_messages(dialog):
+                        media_type = detect_media_type(msg)
+                        text = message_text(msg)
 
-            self.stdout.write(f"  [{dialog_count}] {name} (id={dialog.id}) ...", ending="")
+                        if not text and media_type == MediaType.TEXT:
+                            skipped += 1
+                            continue
 
-            try:
-                async for msg in client.iter_messages(dialog, limit=limit):
-                    media_type = detect_media_type(msg)
-                    text = message_text(msg)
+                        sender_id = None
+                        sender_name = ""
+                        if msg.sender:
+                            sender_id = msg.sender.id
+                            sender_name = _get_entity_name(msg.sender)
 
-                    # Skip service messages with no content
-                    if not text and media_type == "text":
-                        skipped += 1
-                        continue
+                        obj, created = await sync_to_async(_save_message)(
+                            chat_id=dialog.id,
+                            message_id=msg.id,
+                            chat_name=name,
+                            sender_id=sender_id,
+                            sender_name=sender_name,
+                            text=text,
+                            media_type=media_type,
+                            date=msg.date or timezone.now(),
+                            raw=serialize(msg.to_dict()),
+                        )
 
-                    sender_id = None
-                    sender_name = ""
-                    if msg.sender:
-                        sender_id = msg.sender.id
-                        sender_name = _get_entity_name(msg.sender)
+                        if created:
+                            saved += 1
+                            if media_type != MediaType.TEXT:
+                                path = await download_media(client, msg, name)
+                                if path:
+                                    await sync_to_async(
+                                        TelegramMessage.objects.filter(pk=obj.pk).update
+                                    )(media_path=path, media_downloaded=True)
+                        else:
+                            skipped += 1
 
-                    created = await sync_to_async(_save_message)(
-                        chat_id=dialog.id,
-                        message_id=msg.id,
-                        chat_name=name,
-                        sender_id=sender_id,
-                        sender_name=sender_name,
-                        text=text,
-                        media_type=media_type,
-                        date=msg.date or timezone.now(),
-                        raw=serialize(msg.to_dict()),
-                    )
-                    if created:
-                        saved += 1
-                        if media_type != MediaType.TEXT and not should_ignore_media(name, dialog.id):
-                            path = await download_media(client, msg, name)
-                            if path:
-                                await sync_to_async(
-                                    TelegramMessage.objects.filter(
-                                        chat_id=dialog.id, message_id=msg.id
-                                    ).update
-                                )(media_path=path, media_downloaded=True)
-                    else:
-                        skipped += 1
+                except Exception as e:
+                    self.stdout.write(f" ERROR: {e}")
+                    logger.exception("Error importing dialog %s", name)
+                    continue
 
-            except Exception as e:
-                self.stdout.write(f" ERROR: {e}")
-                logger.exception("Error importing dialog %s", name)
-                continue
-
-            self.stdout.write(f" +{saved} saved, {skipped} skipped")
-            total_saved += saved
-            total_skipped += skipped
+                self.stdout.write(f" +{saved} new, {skipped} skipped")
+                total_saved += saved
+                total_skipped += skipped
 
         await client.disconnect()
         self.stdout.write(self.style.SUCCESS(
-            f"\nDone. {dialog_count} dialogs — {total_saved} saved, {total_skipped} already present/skipped."
+            f"\nDone. {total_saved} messages saved, {total_skipped} skipped."
         ))

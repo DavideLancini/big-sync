@@ -1,0 +1,45 @@
+# TELEGRAM CHATS — scegli per ogni chat: KEEP / IGNORE_CHATS / IGNORE_MEDIA
+# IGNORE_CHATS  = non salvare nulla
+# IGNORE_MEDIA  = salva testo, non scaricare file
+# Formato: ID | NOME | TIPO | DECISIONE
+
+# ── PRIVATI (1:1) ────────────────────────────────────────────
+      27060648 | Davide Lancini (Saved Messages)       | privato   |
+     293321358 | Francesco Circosta                    | privato   |
+    6213277678 | Gray G                                | privato   |
+    6441622338 | Ashraful Islam                        | privato   |
+     732223937 | Ace                                   | privato   |
+    7039974005 | Angel                                 | privato   |
+    8597938905 | Lottie                                | privato   |
+    8494385795 | Anna🖤🎊                               | privato   |
+    8597702158 | 8597702158                            | privato   |
+    8171147416 | Giulia Esposito                       | privato   |
+    1385565703 | Victoria                              | privato   |
+     518940137 | Giudy                                 | privato   |
+
+# ── BOT / SISTEMA ─────────────────────────────────────────────
+        777000 | Telegram (OTP/system)                 | sistema   |
+      93372553 | BotFather                             | bot       |
+
+# ── GRUPPI PERSONALI / LAVORO ─────────────────────────────────
+-1001685557685 | SODA Party                            | gruppo    |
+ -5253492996   | AI TECH TEAM LORDS                    | gruppo    |
+ -5119640115   | CUADRO | SALES                        | gruppo    |
+ -5102686111   | COINCIDENCE AI - Team                 | gruppo    |
+ -5278868205   | SUNTIME                               | gruppo    |
+ -4600171855   | WILCOS - Contents                     | gruppo    |
+ -5201426382   | HAWKINGS - LAW AI                     | gruppo    |
+-1001822864957 | CHAINSAW PEOPLE                       | gruppo    |
+-1003968348386 | Cuadro Kings                          | gruppo    |
+
+# ── CANALI / SPAM / BOT PUBBLICI ─────────────────────────────
+-1001583511891 | Prezzi Spaziali / Errori Di Prezzo    | canale    |
+-1002380058210 | Guardaserie 🎉🇮🇹                      | canale    |
+-1001864936438 | SerieLandia                           | canale    |
+-1001174467796 | 🍑Demon mika 🥵                        | canale    |
+-1001344324738 | SPORT LIVE                            | canale    |
+-1001393252619 | 🎬StreamingCommunity🎬                 | canale    |
+-1001662077749 | SERIE TV 🍿                            | canale    |
+-1001659141115 | Altadefinizione/01                    | canale    |
+-1001455358848 | NOSTRI CANALI                         | canale    |
+-1002597839257 | Stickers [Secret] Wonderful           | canale    |
