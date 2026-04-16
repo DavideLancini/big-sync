@@ -56,13 +56,42 @@ def _save_message(chat_id, message_id, chat_name, sender_id, sender_name,
     return obj, created
 
 
+def _ignored_ids():
+    from django.conf import settings
+    ids = set()
+    for val in getattr(settings, "TELEGRAM_IGNORE_CHATS", []):
+        val = val.strip()
+        if val:
+            try:
+                ids.add(int(val))
+            except ValueError:
+                pass
+    return ids
+
+
 class Command(BaseCommand):
     help = "Import full Telegram history with smart resume. Privates first, then groups."
 
-    def handle(self, *args, **options):
-        asyncio.run(self._import())
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--skip",
+            type=str,
+            default="",
+            help="Comma-separated chat IDs to skip in this run only (e.g. for deferred heavy groups)",
+        )
 
-    async def _import(self):
+    def handle(self, *args, **options):
+        skip_ids = set()
+        for val in options["skip"].split(","):
+            val = val.strip()
+            if val:
+                try:
+                    skip_ids.add(int(val))
+                except ValueError:
+                    pass
+        asyncio.run(self._import(skip_ids))
+
+    async def _import(self, skip_ids):
         api_id = config("TELEGRAM_API_ID", cast=int)
         api_hash = config("TELEGRAM_API_HASH")
         session_name = config("TELEGRAM_SESSION_NAME", default="big_sync_telegram")
@@ -76,9 +105,17 @@ class Command(BaseCommand):
         privates = []
         groups = []
 
+        ignored_ids = _ignored_ids()
+
         async for dialog in client.iter_dialogs():
             if should_skip(dialog):
                 self.stdout.write(f"  [SKIP {dialog_type(dialog)}] {dialog.name}")
+                continue
+            if abs(dialog.id) in {abs(i) for i in ignored_ids}:
+                self.stdout.write(f"  [IGNORE] {dialog.name}")
+                continue
+            if abs(dialog.id) in {abs(i) for i in skip_ids}:
+                self.stdout.write(f"  [SKIP this run] {dialog.name}")
                 continue
             if dialog_type(dialog) == "private":
                 privates.append(dialog)

@@ -81,6 +81,11 @@ class Command(BaseCommand):
                 if should_skip_entity(chat):
                     return
 
+                from django.conf import settings
+                ignored = {abs(int(i)) for i in getattr(settings, "TELEGRAM_IGNORE_CHATS", []) if str(i).strip().lstrip("-").isdigit()}
+                if abs(chat_id) in ignored:
+                    return
+
                 media_type = detect_media_type(msg)
                 text = message_text(msg)
                 sender_name = _get_chat_name(sender) if sender else ""

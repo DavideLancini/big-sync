@@ -86,4 +86,5 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Telegram
 # Broadcast channels and bots are skipped automatically.
-# No manual ignore lists needed.
+# TELEGRAM_IGNORE_CHATS: comma-separated IDs — completely ignored by listener AND importer.
+TELEGRAM_IGNORE_CHATS = config("TELEGRAM_IGNORE_CHATS", default="", cast=Csv())
