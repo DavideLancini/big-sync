@@ -20,6 +20,7 @@ def process_batch(chat_name: str, date: str, messages: list[dict]) -> dict:
         return {"contacts": 0, "events": 0, "todos": 0}
 
     prompt = batch_prompt(chat_name, date, messages)
+    # Raises on Gemini error — caller must NOT mark messages as processed on exception
     extracted = ask(prompt)
     return _write_extracted(extracted, source=f"batch:{chat_name}:{date}")
 

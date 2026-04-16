@@ -35,11 +35,10 @@ def extract_json(text: str) -> dict:
 
 
 def ask(prompt: str, model: str = "gemini-2.5-flash") -> dict:
-    """Send prompt to Gemini, return parsed JSON extraction result."""
-    try:
-        client = _get_client()
-        response = client.models.generate_content(model=model, contents=prompt)
-        return extract_json(response.text)
-    except Exception:
-        logger.exception("Gemini API error")
-        return {"contacts": [], "events": [], "todos": []}
+    """
+    Send prompt to Gemini, return parsed JSON extraction result.
+    Raises on API error — callers must handle and decide whether to mark processed.
+    """
+    client = _get_client()
+    response = client.models.generate_content(model=model, contents=prompt)
+    return extract_json(response.text)

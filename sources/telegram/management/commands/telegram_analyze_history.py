@@ -164,9 +164,14 @@ class Command(BaseCommand):
                 for m in msgs
             ]
 
-            counts = process_batch(chat_name, date_str, batch_data)
+            try:
+                counts = process_batch(chat_name, date_str, batch_data)
+            except Exception as e:
+                self.stdout.write(f" → GEMINI ERROR: {e} [not marked processed]")
+                logger.exception("Gemini error on batch %s %s", chat_name, date_str)
+                continue
 
-            # Mark all messages in this batch as processed
+            # Mark processed only on successful Gemini response
             msg_ids = [m.pk for m in msgs]
             TelegramMessage.objects.filter(pk__in=msg_ids).update(processed=True)
 
