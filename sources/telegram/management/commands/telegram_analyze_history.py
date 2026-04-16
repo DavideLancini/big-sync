@@ -79,12 +79,19 @@ class Command(BaseCommand):
             help="Comma-separated chat IDs to limit analysis to",
         )
         parser.add_argument(
+            "--one-chat",
+            action="store_true",
+            help="Process only the chat with fewest unprocessed messages, then stop",
+        )
+        parser.add_argument(
             "--dry-run",
             action="store_true",
             help="Print batches without calling Gemini or writing to Google",
         )
 
     def handle(self, *args, **options):
+        from django.db.models import Count
+
         try:
             start = date.fromisoformat(options["start"])
         except ValueError:
@@ -101,6 +108,22 @@ class Command(BaseCommand):
                     only_chats.add(int(val))
                 except ValueError:
                     pass
+
+        # --one-chat: auto-select the chat with fewest unprocessed messages
+        if options["one_chat"] and not only_chats:
+            row = (
+                TelegramMessage.objects
+                .filter(processed=False, date__date__gte=start, date__date__lte=end)
+                .values("chat_id", "chat_name")
+                .annotate(n=Count("id"))
+                .order_by("n")
+                .first()
+            )
+            if not row:
+                self.stdout.write("No unprocessed messages found.")
+                return
+            only_chats = {row["chat_id"]}
+            self.stdout.write(f"Auto-selected: {row['chat_name']} ({row['chat_id']}) — {row['n']} unprocessed msgs")
 
         self.stdout.write(f"Analyzing from {start} to {end}" +
                           (f" (chats: {only_chats})" if only_chats else "") +
