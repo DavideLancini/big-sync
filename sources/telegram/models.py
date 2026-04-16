@@ -26,6 +26,7 @@ class TelegramMessage(models.Model):
     )
     media_downloaded = models.BooleanField(default=False)
     media_path = models.CharField(max_length=500, blank=True)
+    transcription = models.TextField(blank=True)  # audio/voice transcription via Gemini
     date = models.DateTimeField()
     raw = models.JSONField(default=dict)
     processed = models.BooleanField(default=False)

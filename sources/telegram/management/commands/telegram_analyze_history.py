@@ -14,6 +14,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from sources.telegram.models import TelegramMessage
+from workflows.gemini import transcribe_audio, AUDIO_MEDIA_TYPES
 from workflows.workflow_telegram import process_batch
 
 logger = logging.getLogger(__name__)
@@ -180,11 +181,26 @@ class Command(BaseCommand):
                 self.stdout.write(" [skipped]")
                 continue
 
+            # Transcribe audio messages that have a downloaded file
+            for m in msgs:
+                if m.media_type in AUDIO_MEDIA_TYPES and m.media_path and not m.transcription:
+                    abs_path = f"/var/www/big-sync/{m.media_path}"
+                    if not __import__("os").path.exists(abs_path):
+                        continue
+                    try:
+                        t = transcribe_audio(abs_path)
+                        if t:
+                            TelegramMessage.objects.filter(pk=m.pk).update(transcription=t)
+                            m.transcription = t
+                            self.stdout.write(f"\n    [transcribed {m.pk}]", ending="")
+                    except Exception as e:
+                        self.stdout.write(f"\n    [transcription error {m.pk}: {e}]", ending="")
+
             batch_data = [
                 {
                     "time": m.date.strftime("%H:%M"),
                     "sender": m.sender_name or "Sconosciuto",
-                    "text": m.text,
+                    "text": m.transcription if m.media_type in AUDIO_MEDIA_TYPES and m.transcription else m.text,
                     "media_type": m.media_type,
                 }
                 for m in msgs
