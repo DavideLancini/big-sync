@@ -14,7 +14,7 @@ def _normalize_phone(phone: str) -> str:
 
 
 def _build_service():
-    return build("people", "v1", credentials=get_credentials("contacts"))
+    return build("people", "v1", credentials=get_credentials())
 
 
 def upsert_contact(data: dict) -> str | None:

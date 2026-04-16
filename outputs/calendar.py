@@ -13,7 +13,7 @@ _CALENDAR_ID = "primary"
 
 
 def _build_service():
-    return build("calendar", "v3", credentials=get_credentials("calendar"))
+    return build("calendar", "v3", credentials=get_credentials())
 
 
 def _parse_datetime(date_str: str, time_str: str) -> str | None:
