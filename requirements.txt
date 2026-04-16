@@ -1,6 +1,11 @@
 asgiref==3.11.1
 dj-database-url==3.1.2
 Django==6.0.4
+google-api-python-client==2.169.0
+google-auth==2.40.1
+google-auth-httplib2==0.2.0
+google-generativeai==0.8.5
+gunicorn==23.0.0
 psycopg2-binary==2.9.11
 pyaes==1.6.1
 pyasn1==0.6.3
