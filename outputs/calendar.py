@@ -107,10 +107,10 @@ def _build_body(data: dict) -> dict:
 
     attendees = data.get("attendees") or []
     if attendees:
-        body["attendees"] = [
-            {"email": a} if "@" in str(a) else {"displayName": a}
-            for a in attendees
-        ]
+        # Calendar API requires email; skip name-only attendees
+        with_email = [{"email": a} for a in attendees if "@" in str(a)]
+        if with_email:
+            body["attendees"] = with_email
 
     return body
 
@@ -137,15 +137,14 @@ def _enrich_event(service, existing: dict, data: dict) -> str | None:
 
     # Add new attendees
     if data.get("attendees"):
-        existing_attendees = {
-            (a.get("email") or a.get("displayName") or "").lower()
+        existing_emails = {
+            (a.get("email") or "").lower()
             for a in existing.get("attendees", [])
         }
-        new_attendees = []
-        for a in data["attendees"]:
-            key = a.lower() if "@" in str(a) else str(a).lower()
-            if key not in existing_attendees:
-                new_attendees.append({"email": a} if "@" in str(a) else {"displayName": a})
+        new_attendees = [
+            {"email": a} for a in data["attendees"]
+            if "@" in str(a) and a.lower() not in existing_emails
+        ]
         if new_attendees:
             updated["attendees"] = existing.get("attendees", []) + new_attendees
             changed = True
