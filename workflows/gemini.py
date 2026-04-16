@@ -35,7 +35,7 @@ def extract_json(text: str) -> dict:
         return {"contacts": [], "events": [], "todos": []}
 
 
-def ask(prompt: str, model: str = "gemini-2.0-flash") -> dict:
+def ask(prompt: str, model: str = "gemini-2.0-flash-lite") -> dict:
     """Send prompt to Gemini, return parsed JSON extraction result."""
     _init()
     try:
