@@ -8,6 +8,7 @@ successful batch analysis.
 Safe to re-run: already-processed messages are skipped.
 """
 import logging
+from collections import defaultdict
 from datetime import date, timedelta
 
 from django.core.management.base import BaseCommand
@@ -31,10 +32,13 @@ def _iter_day_chat_batches(start: date, end: date):
 
     Days are accumulated until the next day would push the batch over BATCH_MAX.
     A single day with more than BATCH_MAX messages is yielded as-is (no split).
+
+    Uses 2 queries per chat (chat list + all messages) instead of 1 per day,
+    so SODA Party (1400+ days) doesn't issue 1400 queries before starting.
     """
     from django.db.models import Min
 
-    qs = (
+    chats = (
         TelegramMessage.objects
         .filter(processed=False, date__date__gte=start, date__date__lte=end)
         .values("chat_id", "chat_name")
@@ -43,42 +47,39 @@ def _iter_day_chat_batches(start: date, end: date):
     )
 
     seen_chats = set()
-    for row in qs:
+    for row in chats:
         chat_id = row["chat_id"]
         if chat_id in seen_chats:
             continue
         seen_chats.add(chat_id)
         chat_name = row["chat_name"]
 
-        days = (
+        # Fetch all unprocessed messages for this chat in one query, group by day in Python
+        all_msgs = list(
             TelegramMessage.objects
             .filter(chat_id=chat_id, processed=False, date__date__gte=start, date__date__lte=end)
-            .dates("date", "day", order="ASC")
+            .order_by("date")
         )
 
-        bucket: list = []      # accumulated messages
+        # Group by local date
+        by_day: dict[date, list] = defaultdict(list)
+        for m in all_msgs:
+            by_day[m.date.date()].append(m)
+
+        bucket: list = []
         bucket_start: date | None = None
         bucket_end: date | None = None
 
-        for day in days:
-            day_msgs = list(
-                TelegramMessage.objects
-                .filter(chat_id=chat_id, processed=False, date__date=day)
-                .order_by("date")
-            )
-            if not day_msgs:
-                continue
+        for day in sorted(by_day):
+            day_msgs = by_day[day]
 
             if not bucket:
-                # Start new bucket
                 bucket = day_msgs
                 bucket_start = bucket_end = day
             elif len(bucket) + len(day_msgs) <= BATCH_MAX:
-                # Fits — merge into current bucket
                 bucket += day_msgs
                 bucket_end = day
             else:
-                # Flush current bucket, start new one with this day
                 label = bucket_start.isoformat() if bucket_start == bucket_end else f"{bucket_start} → {bucket_end}"
                 yield chat_id, chat_name, label, bucket
                 bucket = day_msgs
