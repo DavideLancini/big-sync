@@ -18,7 +18,7 @@ from workflows.workflow_telegram import process_batch
 
 logger = logging.getLogger(__name__)
 
-START_DATE = date(2026, 1, 1)
+START_DATE = date(2000, 1, 1)  # effectively no lower bound
 
 
 BATCH_MAX = 25  # target max messages per Gemini call
@@ -96,7 +96,7 @@ class Command(BaseCommand):
             "--start",
             type=str,
             default=START_DATE.isoformat(),
-            help="Start date YYYY-MM-DD (default: 2026-01-01)",
+            help="Start date YYYY-MM-DD (default: no lower bound)",
         )
         parser.add_argument(
             "--chat",
