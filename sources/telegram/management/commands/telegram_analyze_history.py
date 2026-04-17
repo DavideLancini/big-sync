@@ -79,17 +79,21 @@ def _iter_day_chat_batches(start: date, end: date, only_chat_id: int | None = No
         for day in sorted(by_day):
             day_msgs = by_day[day]
 
-            if not bucket:
-                bucket = day_msgs
-                bucket_start = bucket_end = day
-            elif len(bucket) + len(day_msgs) <= BATCH_MAX:
-                bucket += day_msgs
-                bucket_end = day
-            else:
-                label = bucket_start.isoformat() if bucket_start == bucket_end else f"{bucket_start} → {bucket_end}"
-                yield chat_id, chat_name, label, bucket
-                bucket = day_msgs
-                bucket_start = bucket_end = day
+            # Split days that exceed BATCH_MAX into chunks
+            chunks = [day_msgs[i:i + BATCH_MAX] for i in range(0, len(day_msgs), BATCH_MAX)]
+
+            for chunk in chunks:
+                if not bucket:
+                    bucket = chunk
+                    bucket_start = bucket_end = day
+                elif len(bucket) + len(chunk) <= BATCH_MAX:
+                    bucket += chunk
+                    bucket_end = day
+                else:
+                    label = bucket_start.isoformat() if bucket_start == bucket_end else f"{bucket_start} → {bucket_end}"
+                    yield chat_id, chat_name, label, bucket
+                    bucket = chunk
+                    bucket_start = bucket_end = day
 
         if bucket:
             label = bucket_start.isoformat() if bucket_start == bucket_end else f"{bucket_start} → {bucket_end}"
