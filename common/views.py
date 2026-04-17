@@ -1,11 +1,11 @@
 """Dashboard view."""
+import os
 import subprocess
 import sys
 
-from django.http import JsonResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
 
 from common.models import Contact, WriteLog
 from sources.telegram.models import TelegramMessage
@@ -42,24 +42,38 @@ def dashboard(request):
 
 
 @csrf_exempt
-@require_POST
 def run_command(request, action):
-    manage = [sys.executable, "manage.py"]
+    manage = [sys.executable, "-u", "manage.py"]
     commands = {
-        "import": manage + ["telegram_import_history"],
+        "import": manage + ["telegram_import_history", "--gap-check"],
         "analyze": manage + ["telegram_analyze_history", "--one-chat"],
         "analyze_all": manage + ["telegram_analyze_history"],
     }
     if action not in commands:
         return JsonResponse({"error": "Unknown action"}, status=400)
 
-    try:
-        subprocess.Popen(
-            commands[action],
-            cwd="/var/www/big-sync",
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        return JsonResponse({"status": "started", "action": action})
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
+    def event_stream():
+        env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+        try:
+            proc = subprocess.Popen(
+                commands[action],
+                cwd="/var/www/big-sync",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                env=env,
+            )
+            for line in proc.stdout:
+                yield f"data: {line.rstrip()}\n\n"
+            proc.wait()
+            yield f"data: [exitcode={proc.returncode}]\n\n"
+            yield "event: done\ndata: done\n\n"
+        except Exception as e:
+            yield f"data: ERROR: {e}\n\n"
+            yield "event: done\ndata: done\n\n"
+
+    response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
+    response["X-Accel-Buffering"] = "no"
+    response["Cache-Control"] = "no-cache"
+    return response

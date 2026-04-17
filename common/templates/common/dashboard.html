@@ -37,6 +37,10 @@
     .btn-secondary { background: #1e2030; color: #e2e8f0; border: 1px solid #2d3148; }
     .btn-danger { background: #7f1d1d; color: #fca5a5; }
     .status { font-size: 0.75rem; color: #4ade80; margin-top: 0.5rem; display: none; }
+    .log-wrap { display: none; margin-top: 1rem; border: 1px solid #2d3148; border-radius: 8px; overflow: hidden; }
+    .log-header { background: #1e2030; padding: 0.4rem 0.75rem; font-size: 0.7rem; color: #64748b; display: flex; justify-content: space-between; align-items: center; }
+    .log-header span { color: #e2e8f0; }
+    #log { background: #0a0c14; color: #4ade80; font-family: monospace; font-size: 0.72rem; padding: 0.75rem; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; margin: 0; }
     .none { color: #374151; font-style: italic; font-size: 0.875rem; }
   </style>
 </head>
@@ -130,25 +134,51 @@
       <button class="btn-secondary" onclick="run('analyze_all')">Analizza tutto</button>
       <button class="btn-danger" disabled title="Coming soon">Compatta note MD</button>
     </div>
-    <div class="status" id="status"></div>
+    <div class="log-wrap" id="log-wrap">
+      <div class="log-header"><span id="log-title">—</span><span id="log-status">in corso...</span></div>
+      <pre id="log"></pre>
+    </div>
   </section>
 
   <script>
-    async function run(action) {
-      const status = document.getElementById('status');
-      status.style.display = 'block';
-      status.textContent = 'Avviato...';
-      try {
-        const r = await fetch(`/run/${action}/`, { method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') } });
-        const d = await r.json();
-        status.textContent = d.status === 'started' ? `✓ ${action} avviato in background` : `Errore: ${d.error}`;
-      } catch(e) {
-        status.textContent = `Errore: ${e}`;
-      }
-      setTimeout(() => location.reload(), 3000);
-    }
-    function getCookie(name) {
-      return document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith(name + '='))?.split('=')[1] || '';
+    let activeEs = null;
+
+    function run(action) {
+      if (activeEs) { activeEs.close(); activeEs = null; }
+
+      const wrap = document.getElementById('log-wrap');
+      const logEl = document.getElementById('log');
+      const title = document.getElementById('log-title');
+      const statusEl = document.getElementById('log-status');
+
+      wrap.style.display = 'block';
+      logEl.textContent = '';
+      title.textContent = action;
+      statusEl.textContent = 'in corso...';
+      statusEl.style.color = '#f59e0b';
+
+      const es = new EventSource(`/run/${action}/`);
+      activeEs = es;
+
+      es.onmessage = (e) => {
+        logEl.textContent += e.data + '\n';
+        logEl.scrollTop = logEl.scrollHeight;
+      };
+
+      es.addEventListener('done', () => {
+        es.close();
+        activeEs = null;
+        statusEl.textContent = 'completato';
+        statusEl.style.color = '#4ade80';
+        setTimeout(() => location.reload(), 2000);
+      });
+
+      es.onerror = () => {
+        es.close();
+        activeEs = null;
+        statusEl.textContent = 'errore connessione';
+        statusEl.style.color = '#f87171';
+      };
     }
   </script>
 </body>
