@@ -10,6 +10,7 @@ class Contact(models.Model):
     company = models.CharField(max_length=255, blank=True)
     role = models.CharField(max_length=255, blank=True)
     notes = models.TextField(blank=True)
+    notes_url = models.URLField(max_length=500, blank=True)  # Google Drive file URL when notes overflow
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

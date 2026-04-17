@@ -57,7 +57,13 @@ def _build_body(data: dict) -> dict:
     if data.get("company"):
         body["organizations"] = [{"name": data["company"], "title": data.get("role") or ""}]
     if data.get("notes"):
-        body["biographies"] = [{"value": data["notes"], "contentType": "TEXT_PLAIN"}]
+        notes = data["notes"]
+        if len(notes) > 2048:
+            from outputs.drive import upsert_notes_file
+            url = upsert_notes_file((data.get("name") or "unknown"), notes)
+            body["biographies"] = [{"value": f"Note: {url}", "contentType": "TEXT_PLAIN"}]
+        else:
+            body["biographies"] = [{"value": notes, "contentType": "TEXT_PLAIN"}]
     return body
 
 
@@ -71,6 +77,11 @@ def _create_contact(service, data: dict) -> str | None:
         # Save to local cache
         norm_phone = _normalize_phone(data.get("phone") or "")
         norm_email = (data.get("email") or "").lower().strip()
+        notes = (data.get("notes") or "").strip()
+        notes_url = ""
+        if len(notes) > 2048:
+            from outputs.drive import upsert_notes_file
+            notes_url = upsert_notes_file((data.get("name") or "unknown"), notes)
         Contact.objects.create(
             resource_name=resource_name,
             name=(data.get("name") or "").strip(),
@@ -78,7 +89,8 @@ def _create_contact(service, data: dict) -> str | None:
             emails=[norm_email] if norm_email else [],
             company=(data.get("company") or "").strip(),
             role=(data.get("role") or "").strip(),
-            notes=(data.get("notes") or "").strip(),
+            notes=notes,
+            notes_url=notes_url,
         )
         return resource_name
     except Exception:
@@ -134,7 +146,7 @@ def _enrich_contact(service, local: Contact, data: dict) -> str | None:
         local.role = data.get("role") or ""
         local_changed = True
 
-    # Notes — append to existing biography
+    # Notes — append to existing biography, offload to Drive if too long
     NOTES_MAX = 2048
     new_note = (data.get("notes") or "").strip()
     if new_note:
@@ -142,17 +154,25 @@ def _enrich_contact(service, local: Contact, data: dict) -> str | None:
         current_notes = bios[0].get("value", "") if bios else ""
         separator = "\n---\n" if current_notes else ""
         appended = current_notes + separator + new_note
-        if len(appended) > NOTES_MAX:
-            raise ValueError(
-                f"Notes would exceed {NOTES_MAX} chars for contact "
-                f"'{data.get('name')}' (current={len(current_notes)}, "
-                f"adding={len(new_note)})"
-            )
-        if new_note not in current_notes:  # skip if already present
-            body["biographies"] = [{"value": appended, "contentType": "TEXT_PLAIN"}]
-            update_mask_fields.append("biographies")
-            local.notes = appended
-            local_changed = True
+
+        if new_note not in current_notes:
+            if len(appended) > NOTES_MAX or local.notes_url:
+                # Offload to Google Drive
+                from outputs.drive import upsert_notes_file
+                full_notes = local.notes + separator + new_note if local.notes else new_note
+                url = upsert_notes_file(local.name or data.get("name", "unknown"), full_notes)
+                drive_bio = f"Note: {url}"
+                body["biographies"] = [{"value": drive_bio, "contentType": "TEXT_PLAIN"}]
+                update_mask_fields.append("biographies")
+                local.notes = full_notes
+                local.notes_url = url
+                local_changed = True
+                logger.info("Offloaded notes to Drive for contact: %s", data.get("name"))
+            else:
+                body["biographies"] = [{"value": appended, "contentType": "TEXT_PLAIN"}]
+                update_mask_fields.append("biographies")
+                local.notes = appended
+                local_changed = True
 
     if not update_mask_fields:
         logger.debug("Contact already up to date: %s", data.get("name"))
