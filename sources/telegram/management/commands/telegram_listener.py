@@ -71,12 +71,9 @@ class Command(BaseCommand):
                 chat = await event.get_chat()
                 sender = await event.get_sender()
 
-                chat_id = (
-                    getattr(msg.peer_id, "user_id", None)
-                    or getattr(msg.peer_id, "chat_id", None)
-                    or getattr(msg.peer_id, "channel_id", None)
-                    or msg.chat_id
-                )
+                # Use canonical peer ID (same format as dialog.id in import)
+                from telethon.utils import get_peer_id
+                chat_id = get_peer_id(msg.peer_id)
                 chat_name = _get_chat_name(chat)
 
                 if should_skip_entity(chat):
