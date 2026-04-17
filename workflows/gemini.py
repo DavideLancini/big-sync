@@ -89,11 +89,26 @@ def extract_json(text: str) -> dict:
         return {"contacts": [], "events": [], "todos": []}
 
 
-def ask(prompt: str, model: str = "gemini-2.5-flash") -> dict:
+def ask(prompt: str, model: str = "gemini-2.5-flash", retries: int = 3) -> dict:
     """
     Send prompt to Gemini, return parsed JSON extraction result.
-    Raises on API error — callers must handle and decide whether to mark processed.
+    Retries up to `retries` times on 5xx errors with exponential backoff.
+    Raises on API error after all retries exhausted.
     """
+    import time
     client = _get_client()
-    response = client.models.generate_content(model=model, contents=prompt)
-    return extract_json(response.text)
+    last_exc = None
+    for attempt in range(retries):
+        try:
+            response = client.models.generate_content(model=model, contents=prompt)
+            return extract_json(response.text)
+        except Exception as e:
+            last_exc = e
+            status = getattr(e, "status_code", None) or getattr(e, "code", None)
+            if status and int(status) >= 500 and attempt < retries - 1:
+                wait = 5 * (2 ** attempt)  # 5s, 10s, 20s
+                logger.warning("Gemini %s on attempt %d, retrying in %ds", status, attempt + 1, wait)
+                time.sleep(wait)
+            else:
+                raise
+    raise last_exc
