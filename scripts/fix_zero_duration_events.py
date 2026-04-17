@@ -21,7 +21,7 @@ from common.google_auth import get_credentials
 DRY_RUN = "--dry-run" in sys.argv
 CALENDAR_ID = "primary"
 TIME_MIN = "2026-01-01T00:00:00Z"
-TIME_MAX = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+TIME_MAX = "2026-12-31T23:59:59Z"
 PAGE_SIZE = 250
 
 
