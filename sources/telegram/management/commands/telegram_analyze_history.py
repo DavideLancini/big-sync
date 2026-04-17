@@ -171,9 +171,19 @@ class Command(BaseCommand):
         total_todos = 0
         total_msgs_processed = 0
 
+        from django.conf import settings
+        ignored_ids = {
+            abs(int(i)) for i in getattr(settings, "TELEGRAM_IGNORE_CHATS", [])
+            if str(i).strip().lstrip("-").isdigit()
+        }
+
         only_chat_id = next(iter(only_chats)) if len(only_chats) == 1 else None
         for chat_id, chat_name, date_label, msgs in _iter_day_chat_batches(start, end, only_chat_id):
             if only_chats and chat_id not in only_chats:
+                continue
+            if abs(chat_id) in ignored_ids:
+                self.stdout.write(f"  [IGNORE] {chat_name} ({chat_id})")
+                TelegramMessage.objects.filter(pk__in=[m.pk for m in msgs]).delete()
                 continue
 
             if not msgs:
