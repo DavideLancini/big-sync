@@ -14,6 +14,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 from telethon import TelegramClient
 
+from sources.telegram.ignored import ignored_chat_ids
 from sources.telegram.media import (
     detect_media_type, message_text, serialize,
     dialog_type, should_skip, download_media,
@@ -61,16 +62,7 @@ def _save_message(chat_id, message_id, chat_name, sender_id, sender_name,
 
 
 def _ignored_ids():
-    from django.conf import settings
-    ids = set()
-    for val in getattr(settings, "TELEGRAM_IGNORE_CHATS", []):
-        val = val.strip()
-        if val:
-            try:
-                ids.add(int(val))
-            except ValueError:
-                pass
-    return ids
+    return ignored_chat_ids()
 
 
 class Command(BaseCommand):
@@ -83,6 +75,15 @@ class Command(BaseCommand):
             default="",
             help="Comma-separated chat IDs to skip in this run only (e.g. for deferred heavy groups)",
         )
+        parser.add_argument(
+            "--gap-check",
+            action="store_true",
+            help=(
+                "Iterate all messages newest→oldest regardless of what's stored; "
+                "stop a chat after 50 consecutive duplicates. "
+                "Use to catch messages missed while the listener was off."
+            ),
+        )
 
     def handle(self, *args, **options):
         skip_ids = set()
@@ -93,9 +94,9 @@ class Command(BaseCommand):
                     skip_ids.add(int(val))
                 except ValueError:
                     pass
-        asyncio.run(self._import(skip_ids))
+        asyncio.run(self._import(skip_ids, gap_check=options["gap_check"]))
 
-    async def _import(self, skip_ids):
+    async def _import(self, skip_ids, gap_check: bool = False):
         api_id = config("TELEGRAM_API_ID", cast=int)
         api_hash = config("TELEGRAM_API_HASH")
         session_name = config("TELEGRAM_SESSION_NAME", default="big_sync_telegram")
@@ -115,7 +116,7 @@ class Command(BaseCommand):
             if should_skip(dialog):
                 self.stdout.write(f"  [SKIP {dialog_type(dialog)}] {dialog.name}")
                 continue
-            if abs(dialog.id) in {abs(i) for i in ignored_ids}:
+            if abs(dialog.id) in ignored_ids:
                 self.stdout.write(f"  [IGNORE] {dialog.name}")
                 continue
             if abs(dialog.id) in {abs(i) for i in skip_ids}:
@@ -142,21 +143,25 @@ class Command(BaseCommand):
                 saved = 0
                 skipped = 0
 
-                # Resume: find oldest message already in DB for this dialog
-                oldest_id = await sync_to_async(_oldest_message_id)(dialog.id)
+                if gap_check:
+                    resume_note = "gap-check"
+                    iter_kwargs = {}
+                else:
+                    # Resume: find oldest message already in DB for this dialog
+                    oldest_id = await sync_to_async(_oldest_message_id)(dialog.id)
 
-                if oldest_id is not None and oldest_id <= 1:
-                    # Already have the very first message — nothing older to fetch
-                    self.stdout.write(f"  [{idx}/{len(dialogs)}] {name} ... [already complete, skip]")
-                    continue
+                    if oldest_id is not None and oldest_id <= 1:
+                        self.stdout.write(f"  [{idx}/{len(dialogs)}] {name} ... [already complete, skip]")
+                        continue
 
-                resume_note = f"resuming from msg_id<{oldest_id}" if oldest_id else "full fetch"
+                    resume_note = f"resuming from msg_id<{oldest_id}" if oldest_id else "full fetch"
+                    iter_kwargs = {"max_id": oldest_id} if oldest_id else {}
+
                 self.stdout.write(f"  [{idx}/{len(dialogs)}] {name} ({resume_note}) ...", ending="")
                 self.stdout.flush()
 
                 try:
-                    # max_id: fetch only messages with ID strictly less than oldest we have
-                    iter_kwargs = {"max_id": oldest_id} if oldest_id else {}
+                    consecutive_dupes = 0
 
                     async for msg in client.iter_messages(dialog, **iter_kwargs):
                         media_type = detect_media_type(msg)
@@ -164,6 +169,11 @@ class Command(BaseCommand):
 
                         if not text and media_type == MediaType.TEXT:
                             skipped += 1
+                            if gap_check:
+                                consecutive_dupes += 1
+                                if consecutive_dupes >= 50:
+                                    self.stdout.write(f" [50 dupes, done]", ending="")
+                                    break
                             continue
 
                         sender_id = None
@@ -186,6 +196,7 @@ class Command(BaseCommand):
 
                         if created:
                             saved += 1
+                            consecutive_dupes = 0
                             if media_type != MediaType.TEXT:
                                 path = await download_media(client, msg, name)
                                 if path:
@@ -194,6 +205,11 @@ class Command(BaseCommand):
                                     )(media_path=path, media_downloaded=True)
                         else:
                             skipped += 1
+                            if gap_check:
+                                consecutive_dupes += 1
+                                if consecutive_dupes >= 50:
+                                    self.stdout.write(f" [50 dupes, done]", ending="")
+                                    break
 
                 except Exception as e:
                     self.stdout.write(f" ERROR: {e}")
