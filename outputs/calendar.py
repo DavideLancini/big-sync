@@ -84,7 +84,7 @@ def _build_body(data: dict) -> dict:
 
     start_dt = _parse_datetime(data.get("date"), data.get("time"))
     end_dt = _parse_datetime(data.get("end_date") or data.get("date"),
-                             data.get("end_time") or data.get("time"))
+                             data.get("end_time"))
 
     if start_dt and "T" in start_dt:
         # Has time component
