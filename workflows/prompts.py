@@ -76,3 +76,29 @@ Estrai contatti, eventi e todo/task se presenti.
 Messaggio: {content}
 
 {EXTRACTION_SCHEMA}"""
+
+
+def realtime_prompt(chat_name: str, new_msg: dict, context_msgs: list[dict]) -> str:
+    """
+    Prompt for real-time single-message analysis with preceding context.
+    new_msg / context_msgs: dicts with keys: time, date, sender, text, media_type
+    Extract only from new_msg; context is for disambiguation only.
+    """
+    context_block = ""
+    if context_msgs:
+        lines = []
+        for m in context_msgs:
+            text = m["text"] or f"[{m['media_type']}]"
+            lines.append(f"[{m['time']}] {m['sender'] or 'Sconosciuto'}: {text}")
+        context_block = "Messaggi precedenti (solo contesto, NON estrarre da questi):\n" + "\n".join(lines) + "\n\n"
+
+    new_text = new_msg["text"] or f"[{new_msg['media_type']}]"
+    new_line = f"[{new_msg['time']}] {new_msg['sender'] or 'Sconosciuto'}: {new_text}"
+
+    return f"""Analizza SOLO l'ultimo messaggio nella chat "{chat_name}" (data: {new_msg['date']}).
+I messaggi precedenti sono forniti solo come contesto — non estrarre informazioni da loro.
+
+{context_block}Messaggio da analizzare:
+{new_line}
+
+{EXTRACTION_SCHEMA}"""

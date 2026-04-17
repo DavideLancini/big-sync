@@ -5,7 +5,7 @@ from outputs.contacts import upsert_contact
 from outputs.calendar import upsert_event
 from outputs.tasks import upsert_task
 from workflows.gemini import ask
-from workflows.prompts import batch_prompt, single_prompt
+from workflows.prompts import batch_prompt, single_prompt, realtime_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,18 @@ def process_message(chat_name: str, sender: str, datetime_str: str,
     Returns counts: {contacts, events, todos}
     """
     prompt = single_prompt(chat_name, sender, datetime_str, text, media_type)
+    extracted = ask(prompt)
+    return _write_extracted(extracted, source=f"realtime:{chat_name}")
+
+
+def process_realtime_message(chat_name: str, new_msg: dict, context_msgs: list[dict]) -> dict:
+    """
+    Analyze a new real-time message using up to 10 preceding messages as context.
+    new_msg / context_msgs: dicts with keys: time, date, sender, text, media_type
+    Extract only from new_msg; context aids disambiguation only.
+    Returns counts: {contacts, events, todos}
+    """
+    prompt = realtime_prompt(chat_name, new_msg, context_msgs)
     extracted = ask(prompt)
     return _write_extracted(extracted, source=f"realtime:{chat_name}")
 

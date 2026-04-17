@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta, timezone as dt_timezone
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
+from sources.telegram.ignored import ignored_chat_ids
 from sources.telegram.models import TelegramMessage
 from workflows.gemini import AUDIO_MEDIA_TYPES, transcribe_audio
 from workflows.workflow_telegram import process_batch
@@ -175,11 +176,7 @@ class Command(BaseCommand):
         total_todos = 0
         total_msgs_processed = 0
 
-        from django.conf import settings
-        ignored_ids = {
-            abs(int(i)) for i in getattr(settings, "TELEGRAM_IGNORE_CHATS", [])
-            if str(i).strip().lstrip("-").isdigit()
-        }
+        ignored_ids = ignored_chat_ids()
 
         only_chat_id = next(iter(only_chats)) if len(only_chats) == 1 else None
         for chat_id, chat_name, date_label, msgs in _iter_day_chat_batches(start, end, only_chat_id):
