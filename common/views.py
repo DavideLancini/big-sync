@@ -4,6 +4,7 @@ import sys
 
 from django.http import JsonResponse
 from django.shortcuts import render
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from common.models import Contact, WriteLog
@@ -40,6 +41,7 @@ def dashboard(request):
     return render(request, "common/dashboard.html", ctx)
 
 
+@csrf_exempt
 @require_POST
 def run_command(request, action):
     manage = [sys.executable, "manage.py"]
