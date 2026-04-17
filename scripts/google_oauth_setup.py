@@ -84,20 +84,10 @@ def main():
         print("ERROR: no refresh_token in response:", tokens)
         sys.exit(1)
 
-    # Verify account
-    access_token = tokens["access_token"]
-    req2 = urllib.request.Request(
-        "https://www.googleapis.com/oauth2/v2/userinfo",
-        headers={"Authorization": f"Bearer {access_token}"},
-    )
-    with urllib.request.urlopen(req2) as resp:
-        userinfo = json.loads(resp.read())
-
-    print(f"\n✓ Authorized as: {userinfo.get('email')} ({userinfo.get('name')})")
-    print(f"\nAdd this to .env on the server:\n")
+    print(f"\n✓ Success! Add this to .env on the server:\n")
     print(f"GOOGLE_REFRESH_TOKEN={refresh_token}")
-    print(f"\nRun on server:")
-    print(f"  ssh elisabetta \"sed -i 's|^GOOGLE_REFRESH_TOKEN=.*|GOOGLE_REFRESH_TOKEN={refresh_token}|' /var/www/big-sync/.env\"")
+    print(f"\nThen run on server:")
+    print(f"  sed -i 's|^GOOGLE_REFRESH_TOKEN=.*|GOOGLE_REFRESH_TOKEN={refresh_token}|' /var/www/big-sync/.env")
 
 
 if __name__ == "__main__":
