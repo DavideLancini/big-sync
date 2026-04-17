@@ -6,6 +6,7 @@ from datetime import datetime
 from googleapiclient.discovery import build
 
 from common.google_auth import get_credentials
+from common.models import WriteLog
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,7 @@ def upsert_task(data: dict) -> str | None:
     try:
         result = service.tasks().insert(tasklist=tasklist_id, body=body).execute()
         logger.info("Created task: %s", title)
+        WriteLog.objects.create(type=WriteLog.TYPE_TASK, title=title, detail=data.get("due_date") or "")
         return result.get("id")
     except Exception:
         logger.exception("Error creating task: %s", data)

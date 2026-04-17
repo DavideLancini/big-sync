@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from googleapiclient.discovery import build
 
 from common.google_auth import get_credentials
+from common.models import WriteLog
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +201,7 @@ def upsert_event(data: dict) -> str | None:
     try:
         result = service.events().insert(calendarId=_CALENDAR_ID, body=body).execute()
         logger.info("Created calendar event: %s", title)
+        WriteLog.objects.create(type=WriteLog.TYPE_EVENT, title=title, detail=data.get("date") or "")
         return result.get("id")
     except Exception:
         logger.exception("Error creating calendar event: %s", data)

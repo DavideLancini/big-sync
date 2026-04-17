@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>big-sync dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; padding: 2rem; }
+    h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 2rem; color: #fff; letter-spacing: -0.02em; }
+    h1 span { color: #6366f1; }
+    section { margin-bottom: 2rem; }
+    h2 { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; margin-bottom: 0.75rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1rem; }
+    .card { background: #1e2030; border: 1px solid #2d3148; border-radius: 10px; padding: 1.25rem; }
+    .card .val { font-size: 2rem; font-weight: 700; color: #fff; line-height: 1; }
+    .card .val.accent { color: #6366f1; }
+    .card .val.green { color: #22c55e; }
+    .card .val.amber { color: #f59e0b; }
+    .card .label { font-size: 0.75rem; color: #64748b; margin-top: 0.4rem; }
+    .progress-bar { background: #2d3148; border-radius: 4px; height: 6px; margin-top: 0.5rem; overflow: hidden; }
+    .progress-bar .fill { height: 100%; background: #6366f1; border-radius: 4px; transition: width 0.3s; }
+    .activity { display: flex; flex-direction: column; gap: 0.5rem; }
+    .activity-row { background: #1e2030; border: 1px solid #2d3148; border-radius: 8px; padding: 0.75rem 1rem; display: flex; justify-content: space-between; align-items: center; }
+    .activity-row .name { font-size: 0.875rem; font-weight: 500; }
+    .activity-row .meta { font-size: 0.75rem; color: #64748b; text-align: right; }
+    .tag { display: inline-block; font-size: 0.65rem; font-weight: 600; text-transform: uppercase; padding: 0.15rem 0.4rem; border-radius: 4px; margin-right: 0.5rem; }
+    .tag-contact { background: #1e3a5f; color: #60a5fa; }
+    .tag-event { background: #1a3a2a; color: #4ade80; }
+    .tag-task { background: #3a1a1a; color: #f87171; }
+    .tag-msg { background: #2d2a1a; color: #fbbf24; }
+    .actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+    button { border: none; cursor: pointer; border-radius: 8px; padding: 0.6rem 1.2rem; font-size: 0.875rem; font-weight: 600; transition: opacity 0.15s; }
+    button:hover { opacity: 0.85; }
+    button:active { opacity: 0.7; }
+    .btn-primary { background: #6366f1; color: #fff; }
+    .btn-secondary { background: #1e2030; color: #e2e8f0; border: 1px solid #2d3148; }
+    .btn-danger { background: #7f1d1d; color: #fca5a5; }
+    .status { font-size: 0.75rem; color: #4ade80; margin-top: 0.5rem; display: none; }
+    .none { color: #374151; font-style: italic; font-size: 0.875rem; }
+  </style>
+</head>
+<body>
+  <h1>big<span>-sync</span></h1>
+
+  <section>
+    <h2>Messaggi Telegram</h2>
+    <div class="grid">
+      <div class="card">
+        <div class="val">{{ total_msgs|floatformat:"0" }}</div>
+        <div class="label">Archiviati</div>
+      </div>
+      <div class="card">
+        <div class="val accent">{{ analyzed_msgs|floatformat:"0" }}</div>
+        <div class="label">Analizzati</div>
+        <div class="progress-bar"><div class="fill" style="width: {{ analyzed_pct }}%"></div></div>
+      </div>
+      <div class="card">
+        <div class="val amber">{{ pending_msgs|floatformat:"0" }}</div>
+        <div class="label">Da analizzare</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Contatti</h2>
+    <div class="grid">
+      <div class="card">
+        <div class="val">{{ total_contacts }}</div>
+        <div class="label">Totali</div>
+      </div>
+      <div class="card">
+        <div class="val accent">{{ contacts_with_notes }}</div>
+        <div class="label">Con note su Drive</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ultima attività</h2>
+    <div class="activity">
+      <div class="activity-row">
+        <div class="name"><span class="tag tag-msg">MSG</span>Ultimo ricevuto</div>
+        <div class="meta">
+          {% if last_received %}
+            {{ last_received.chat_name }} · {{ last_received.date|date:"d/m/Y H:i" }}
+          {% else %}<span class="none">—</span>{% endif %}
+        </div>
+      </div>
+      <div class="activity-row">
+        <div class="name"><span class="tag tag-msg">MSG</span>Ultimo analizzato</div>
+        <div class="meta">
+          {% if last_analyzed %}
+            {{ last_analyzed.chat_name }} · {{ last_analyzed.date|date:"d/m/Y H:i" }}
+          {% else %}<span class="none">—</span>{% endif %}
+        </div>
+      </div>
+      <div class="activity-row">
+        <div class="name"><span class="tag tag-contact">CONTACT</span>Ultimo contatto</div>
+        <div class="meta">
+          {% if last_contact %}
+            {{ last_contact.title }} · {{ last_contact.created_at|date:"d/m/Y H:i" }}
+          {% else %}<span class="none">—</span>{% endif %}
+        </div>
+      </div>
+      <div class="activity-row">
+        <div class="name"><span class="tag tag-event">EVENT</span>Ultimo evento</div>
+        <div class="meta">
+          {% if last_event %}
+            {{ last_event.title }} · {{ last_event.created_at|date:"d/m/Y H:i" }}
+          {% else %}<span class="none">—</span>{% endif %}
+        </div>
+      </div>
+      <div class="activity-row">
+        <div class="name"><span class="tag tag-task">TASK</span>Ultimo task</div>
+        <div class="meta">
+          {% if last_task %}
+            {{ last_task.title }} · {{ last_task.created_at|date:"d/m/Y H:i" }}
+          {% else %}<span class="none">—</span>{% endif %}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Azioni</h2>
+    <div class="actions">
+      <button class="btn-primary" onclick="run('import')">Import messaggi</button>
+      <button class="btn-primary" onclick="run('analyze')">Analizza una chat</button>
+      <button class="btn-secondary" onclick="run('analyze_all')">Analizza tutto</button>
+      <button class="btn-danger" disabled title="Coming soon">Compatta note MD</button>
+    </div>
+    <div class="status" id="status"></div>
+  </section>
+
+  <script>
+    async function run(action) {
+      const status = document.getElementById('status');
+      status.style.display = 'block';
+      status.textContent = 'Avviato...';
+      try {
+        const r = await fetch(`/run/${action}/`, { method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') } });
+        const d = await r.json();
+        status.textContent = d.status === 'started' ? `✓ ${action} avviato in background` : `Errore: ${d.error}`;
+      } catch(e) {
+        status.textContent = `Errore: ${e}`;
+      }
+      setTimeout(() => location.reload(), 3000);
+    }
+    function getCookie(name) {
+      return document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith(name + '='))?.split('=')[1] || '';
+    }
+  </script>
+</body>
+</html>
