@@ -60,18 +60,36 @@ def _sync():
             role = orgs[0].get("title", "") if orgs else ""
 
             bios = person.get("biographies", [])
-            notes = bios[0].get("value", "") if bios else ""
+            bio = bios[0].get("value", "") if bios else ""
+
+            # Extract Drive URL if biography is a link we manage
+            notes_url = ""
+            if bio.startswith("Note: https://drive.google.com/"):
+                notes_url = bio[len("Note: "):]
+
+            # Build defaults — preserve local notes/notes_url if Drive is the source of truth
+            defaults = {
+                "name": name,
+                "phones": phones,
+                "emails": emails,
+                "company": company,
+                "role": role,
+            }
+
+            existing = Contact.objects.filter(resource_name=resource_name).first()
+            if existing and existing.notes_url:
+                # Notes live on Drive — don't overwrite local full-text notes
+                if notes_url and notes_url != existing.notes_url:
+                    defaults["notes_url"] = notes_url
+            else:
+                # No Drive file — sync notes from Google biography
+                defaults["notes"] = bio
+                if notes_url:
+                    defaults["notes_url"] = notes_url
 
             Contact.objects.update_or_create(
                 resource_name=resource_name,
-                defaults={
-                    "name": name,
-                    "phones": phones,
-                    "emails": emails,
-                    "company": company,
-                    "role": role,
-                    "notes": notes,
-                },
+                defaults=defaults,
             )
             upserted += 1
 
