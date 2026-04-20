@@ -135,6 +135,26 @@
     <div id="fetch-log"></div>
 
     {% if summaries %}
+
+    <div style="margin-bottom:1.25rem;">
+      {% if audio_exists %}
+      <div style="background:#13151f;border:1px solid #1e2030;border-radius:10px;padding:0.75rem 1rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
+        <span style="font-size:0.75rem;font-weight:600;color:#6366f1;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;vertical-align:middle;margin-right:0.3rem;"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+          Briefing audio
+        </span>
+        <audio controls src="{% url 'rss_audio' displayed_date|date:'Y-m-d' %}" style="flex:1;min-width:200px;height:32px;accent-color:#6366f1;"></audio>
+        <button class="btn" id="audio-btn" onclick="generateAudio('{{ displayed_date|date:"Y-m-d" }}')">Rigenera</button>
+      </div>
+      {% else %}
+      <button class="btn" id="audio-btn" onclick="generateAudio('{{ displayed_date|date:"Y-m-d" }}')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+        Genera briefing audio
+      </button>
+      {% endif %}
+      <div id="audio-log" style="background:#0a0b12;border:1px solid #1e2030;border-radius:8px;padding:0.75rem 1rem;font-family:monospace;font-size:0.75rem;color:#4ade80;white-space:pre-wrap;margin-top:0.75rem;max-height:150px;overflow-y:auto;display:none;"></div>
+    </div>
+
     <div class="topic-cards">
       {% for s in summaries %}
       <div class="topic-card">
@@ -171,6 +191,26 @@
       const isOpen = body.classList.contains('open');
       body.classList.toggle('open', !isOpen);
       chevron.classList.toggle('open', !isOpen);
+    }
+
+    function generateAudio(dateStr) {
+      const btn = document.getElementById('audio-btn');
+      const log = document.getElementById('audio-log');
+      btn.classList.add('loading');
+      btn.textContent = 'Generazione...';
+      log.style.display = 'block';
+      log.textContent = '';
+
+      const es = new EventSource(`/run/rss_audio:${dateStr}/`);
+      es.onmessage = e => {
+        log.textContent += e.data + '\n';
+        log.scrollTop = log.scrollHeight;
+      };
+      es.addEventListener('done', () => {
+        es.close();
+        setTimeout(() => location.reload(), 500);
+      });
+      es.onerror = () => { es.close(); btn.classList.remove('loading'); };
     }
 
     function runUpdate() {

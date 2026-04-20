@@ -4,7 +4,8 @@ import subprocess
 import sys
 
 from decouple import config as env_config
-from django.http import JsonResponse, StreamingHttpResponse
+from django.conf import settings
+from django.http import FileResponse, Http404, JsonResponse, StreamingHttpResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.csrf import csrf_exempt
 
@@ -132,6 +133,16 @@ def rss_dashboard(request):
         except ValueError:
             pass
 
+    displayed_date = today
+    if summary_date_str:
+        try:
+            from datetime import date as date_type
+            displayed_date = date_type.fromisoformat(summary_date_str)
+        except ValueError:
+            pass
+
+    audio_path = settings.MEDIA_ROOT / "rss_audio" / f"{displayed_date}.wav"
+
     ctx = {
         "tab": tab,
         "feeds": feeds,
@@ -140,8 +151,19 @@ def rss_dashboard(request):
         "summaries": summaries,
         "summary_dates": summary_dates,
         "today": today,
+        "displayed_date": displayed_date,
+        "audio_exists": audio_path.exists(),
     }
     return render(request, "common/rss.html", ctx)
+
+
+def rss_audio(request, date_str):
+    if not _is_authenticated(request):
+        return redirect("login")
+    audio_path = settings.MEDIA_ROOT / "rss_audio" / f"{date_str}.wav"
+    if not audio_path.exists():
+        raise Http404
+    return FileResponse(open(audio_path, "rb"), content_type="audio/wav")
 
 
 def rss_article(request, pk):
@@ -222,6 +244,16 @@ def run_command(request, action):
         "analyze_all": manage + ["telegram_analyze_history"],
         "rss_update": manage + ["rss_update"],
     }
+
+    if action.startswith("rss_audio:"):
+        from datetime import date as date_type
+        date_str = action.removeprefix("rss_audio:")
+        try:
+            date_type.fromisoformat(date_str)
+        except ValueError:
+            return JsonResponse({"error": "Data non valida"}, status=400)
+        commands[action] = manage + ["rss_audio_generate", "--date", date_str, "--force"]
+
     if action not in commands:
         return JsonResponse({"error": "Unknown action"}, status=400)
 
