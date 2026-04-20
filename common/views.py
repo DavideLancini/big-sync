@@ -90,20 +90,56 @@ def rss_dashboard(request):
     if not _is_authenticated(request):
         return redirect("login")
 
-    from sources.rss.models import RssArticle, RssFeed
+    from django.utils import timezone
+    from sources.rss.models import RssArticle, RssDailySummary, RssFeed
 
+    tab = request.GET.get("tab", "news")
     feeds = RssFeed.objects.filter(active=True).order_by("name")
     feed_filter = request.GET.get("feed")
+
     articles = RssArticle.objects.select_related("feed").order_by("-published_at", "-created_at")
     if feed_filter:
         articles = articles.filter(feed_id=feed_filter)
     articles = articles[:200]
 
+    today = timezone.localdate()
+    summaries = (
+        RssDailySummary.objects
+        .filter(date=today, article_count__gt=0)
+        .select_related("topic")
+        .order_by("topic__order")
+    )
+
+    # Available summary dates for history navigation
+    summary_dates = (
+        RssDailySummary.objects
+        .values_list("date", flat=True)
+        .distinct()
+        .order_by("-date")[:10]
+    )
+
+    summary_date_str = request.GET.get("summary_date")
+    if summary_date_str:
+        try:
+            from datetime import date as date_type
+            summary_date = date_type.fromisoformat(summary_date_str)
+            summaries = (
+                RssDailySummary.objects
+                .filter(date=summary_date, article_count__gt=0)
+                .select_related("topic")
+                .order_by("topic__order")
+            )
+        except ValueError:
+            pass
+
     ctx = {
+        "tab": tab,
         "feeds": feeds,
         "articles": articles,
         "active_feed": feed_filter,
-        "tab": request.GET.get("tab", "news"),
+        "summaries": summaries,
+        "summary_dates": summary_dates,
+        "today": today,
     }
     return render(request, "common/rss.html", ctx)
 
@@ -184,7 +220,7 @@ def run_command(request, action):
         "import": manage + ["telegram_import_history", "--gap-check"],
         "analyze": manage + ["telegram_analyze_history", "--one-chat"],
         "analyze_all": manage + ["telegram_analyze_history"],
-        "rss_fetch": manage + ["rss_fetch"],
+        "rss_update": manage + ["rss_update"],
     }
     if action not in commands:
         return JsonResponse({"error": "Unknown action"}, status=400)

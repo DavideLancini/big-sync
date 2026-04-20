@@ -33,7 +33,7 @@
     .feed-pills { display: flex; gap: 0.4rem; flex-wrap: wrap; flex: 1; }
     .pill { padding: 0.3rem 0.75rem; border-radius: 20px; font-size: 0.72rem; font-weight: 600; background: #1e2030; border: 1px solid #2d3148; color: #64748b; text-decoration: none; transition: all 0.15s; white-space: nowrap; }
     .pill.active, .pill:hover { background: #312e81; border-color: #4338ca; color: #a5b4fc; }
-    /* Fetch button */
+    /* Buttons */
     .btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.4rem 1rem; border-radius: 8px; border: 1px solid #2d3148; background: #1e2030; color: #94a3b8; font-size: 0.78rem; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all 0.15s; }
     .btn:hover { border-color: #4338ca; color: #a5b4fc; }
     .btn.loading { opacity: 0.6; pointer-events: none; }
@@ -48,13 +48,25 @@
     .article-date { font-size: 0.7rem; color: #475569; }
     .article-title { font-size: 0.88rem; line-height: 1.4; }
     .article-summary { font-size: 0.78rem; color: #64748b; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    /* Summary tab */
+    .date-nav { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .date-nav span { font-size: 0.72rem; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; margin-right: 0.25rem; }
+    .topic-cards { display: flex; flex-direction: column; gap: 1rem; }
+    .topic-card { background: #1e2030; border: 1px solid #2d3148; border-radius: 12px; overflow: hidden; }
+    .topic-header { display: flex; align-items: center; justify-content: space-between; padding: 0.85rem 1.25rem; border-bottom: 1px solid #2d3148; cursor: pointer; user-select: none; }
+    .topic-header:hover { background: #252838; }
+    .topic-name { font-size: 0.82rem; font-weight: 700; color: #a5b4fc; letter-spacing: 0.02em; }
+    .topic-count { font-size: 0.68rem; color: #475569; }
+    .topic-chevron { color: #475569; transition: transform 0.2s; }
+    .topic-chevron.open { transform: rotate(180deg); }
+    .topic-body { padding: 1rem 1.25rem; font-size: 0.85rem; line-height: 1.75; color: #cbd5e1; display: none; }
+    .topic-body.open { display: block; }
+    .topic-body p { margin-bottom: 0.75rem; }
+    .topic-body p:last-child { margin-bottom: 0; }
     /* Empty */
     .empty { color: #374151; font-style: italic; font-size: 0.875rem; padding: 2rem 0; text-align: center; }
-    /* Placeholder */
-    .placeholder-card { background: #1e2030; border: 1px dashed #2d3148; border-radius: 10px; padding: 3rem 2rem; text-align: center; }
-    .placeholder-card .icon { font-size: 2rem; margin-bottom: 1rem; }
-    .placeholder-card h3 { font-size: 1rem; font-weight: 600; color: #94a3b8; margin-bottom: 0.5rem; }
-    .placeholder-card p { font-size: 0.82rem; color: #475569; }
+    .empty-summary { background: #1e2030; border: 1px dashed #2d3148; border-radius: 10px; padding: 2.5rem 2rem; text-align: center; }
+    .empty-summary p { font-size: 0.82rem; color: #475569; }
     /* Log */
     #fetch-log { background: #0a0b12; border: 1px solid #1e2030; border-radius: 8px; padding: 0.75rem 1rem; font-family: monospace; font-size: 0.75rem; color: #4ade80; white-space: pre-wrap; margin-top: 1rem; max-height: 200px; overflow-y: auto; display: none; }
   </style>
@@ -67,7 +79,7 @@
       <h1>RSS <span>feed</span></h1>
       <div class="tabs">
         <a href="?tab=news{% if active_feed %}&feed={{ active_feed }}{% endif %}" class="tab {% if tab == 'news' %}active{% endif %}">Notizie</a>
-        <a href="?tab=summary{% if active_feed %}&feed={{ active_feed }}{% endif %}" class="tab {% if tab == 'summary' %}active{% endif %}">Riassunto AI</a>
+        <a href="?tab=summary" class="tab {% if tab == 'summary' %}active{% endif %}">Riassunto AI</a>
       </div>
     </div>
 
@@ -80,7 +92,7 @@
         <a href="?tab=news&feed={{ feed.id }}" class="pill {% if active_feed == feed.id|stringformat:'s' %}active{% endif %}">{{ feed.name }}</a>
         {% endfor %}
       </div>
-      <button class="btn" id="fetch-btn" onclick="fetchNow()">
+      <button class="btn" id="fetch-btn" onclick="runUpdate()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
         Aggiorna
       </button>
@@ -93,35 +105,78 @@
       <a href="{% url 'rss_article' article.pk %}" class="article-row {% if article.read %}read{% else %}unread{% endif %}">
         <div class="article-meta">
           <span class="article-source">{{ article.feed.name }}</span>
-          {% if article.published_at %}
-          <span class="article-date">{{ article.published_at|date:"d/m/Y H:i" }}</span>
-          {% endif %}
+          {% if article.published_at %}<span class="article-date">{{ article.published_at|date:"d/m/Y H:i" }}</span>{% endif %}
+          {% if not article.analyzed %}<span style="font-size:0.62rem;color:#64748b;font-style:italic;">• non analizzato</span>{% endif %}
         </div>
         <div class="article-title">{{ article.title }}</div>
-        {% if article.summary %}
-        <div class="article-summary">{{ article.summary|striptags }}</div>
-        {% endif %}
+        {% if article.summary %}<div class="article-summary">{{ article.summary|striptags }}</div>{% endif %}
       </a>
       {% empty %}
-      <div class="empty">
-        Nessun articolo. Premi "Aggiorna" per scaricare i feed.
-      </div>
+      <div class="empty">Nessun articolo. Premi "Aggiorna" per scaricare i feed.</div>
       {% endfor %}
     </div>
 
     {% else %}
 
-    <div class="placeholder-card">
-      <div class="icon">🤖</div>
-      <h3>Riassunto AI</h3>
-      <p>Il riassunto automatico delle notizie con Gemini non è ancora implementato.<br>Prossimamente qui vedrà un briefing giornaliero generato dall'AI.</p>
+    <div class="toolbar" style="margin-bottom:1.25rem;">
+      <div class="date-nav">
+        <span>Data:</span>
+        <a href="?tab=summary" class="pill {% if not request.GET.summary_date %}active{% endif %}">Oggi</a>
+        {% for d in summary_dates %}{% if d != today %}
+        <a href="?tab=summary&summary_date={{ d|date:'Y-m-d' }}" class="pill {% if request.GET.summary_date == d|date:'Y-m-d' %}active{% endif %}">{{ d|date:"d/m" }}</a>
+        {% endif %}{% endfor %}
+      </div>
+      <button class="btn" id="fetch-btn" onclick="runUpdate()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+        Aggiorna
+      </button>
     </div>
+
+    <div id="fetch-log"></div>
+
+    {% if summaries %}
+    <div class="topic-cards">
+      {% for s in summaries %}
+      <div class="topic-card">
+        <div class="topic-header" onclick="toggleTopic(this)">
+          <span class="topic-name">{{ s.topic.name }}</span>
+          <div style="display:flex;align-items:center;gap:0.75rem;">
+            <span class="topic-count">{{ s.article_count }} articol{{ s.article_count|pluralize:"o,i" }}</span>
+            <svg class="topic-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+        </div>
+        <div class="topic-body">
+          {% for para in s.text|linebreaksbr|cut:"<br>" %}{% endfor %}
+          {{ s.text|linebreaksp }}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-summary">
+      <p>Nessun riassunto disponibile per questa data.<br>Premi "Aggiorna" per scaricare e analizzare le notizie.</p>
+    </div>
+    {% endif %}
 
     {% endif %}
   </main>
 
   <script>
-    function fetchNow() {
+    // Auto-open first topic card
+    document.addEventListener('DOMContentLoaded', () => {
+      const first = document.querySelector('.topic-header');
+      if (first) toggleTopic(first);
+    });
+
+    function toggleTopic(header) {
+      const body = header.nextElementSibling;
+      const chevron = header.querySelector('.topic-chevron');
+      const isOpen = body.classList.contains('open');
+      body.classList.toggle('open', !isOpen);
+      chevron.classList.toggle('open', !isOpen);
+    }
+
+    function runUpdate() {
       const btn = document.getElementById('fetch-btn');
       const log = document.getElementById('fetch-log');
       btn.classList.add('loading');
@@ -129,7 +184,7 @@
       log.style.display = 'block';
       log.textContent = '';
 
-      const es = new EventSource('/run/rss_fetch/');
+      const es = new EventSource('/run/rss_update/');
       es.onmessage = e => {
         log.textContent += e.data + '\n';
         log.scrollTop = log.scrollHeight;
@@ -140,10 +195,7 @@
         btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4-4.64 4.36A9 9 0 0 1 3.51 15"/></svg> Aggiorna';
         setTimeout(() => location.reload(), 800);
       });
-      es.onerror = () => {
-        es.close();
-        btn.classList.remove('loading');
-      };
+      es.onerror = () => { es.close(); btn.classList.remove('loading'); };
     }
   </script>
 </body>

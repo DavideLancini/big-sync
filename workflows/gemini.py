@@ -89,6 +89,27 @@ def extract_json(text: str) -> dict:
         return {"contacts": [], "events": [], "todos": []}
 
 
+def ask_text(prompt: str, model: str = "gemini-2.5-flash", retries: int = 3) -> str:
+    """Send prompt to Gemini, return raw text response."""
+    import time
+    client = _get_client()
+    last_exc = None
+    for attempt in range(retries):
+        try:
+            response = client.models.generate_content(model=model, contents=prompt)
+            return response.text.strip()
+        except Exception as e:
+            last_exc = e
+            status = getattr(e, "status_code", None) or getattr(e, "code", None)
+            if status and int(status) >= 500 and attempt < retries - 1:
+                wait = 5 * (2 ** attempt)
+                logger.warning("Gemini %s on attempt %d, retrying in %ds", status, attempt + 1, wait)
+                time.sleep(wait)
+            else:
+                raise
+    raise last_exc
+
+
 def ask(prompt: str, model: str = "gemini-2.5-flash", retries: int = 3) -> dict:
     """
     Send prompt to Gemini, return parsed JSON extraction result.
