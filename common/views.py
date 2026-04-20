@@ -57,6 +57,8 @@ def home(request):
     if not _is_authenticated(request):
         return redirect("login")
 
+    from common.google_billing import billing_summary
+
     total_contacts = Contact.objects.count()
     total_events = WriteLog.objects.filter(type=WriteLog.TYPE_EVENT).count()
     total_tasks = WriteLog.objects.filter(type=WriteLog.TYPE_TASK).count()
@@ -79,6 +81,7 @@ def home(request):
         "telegram_analyzed": telegram_analyzed,
         "gemini_status": _gemini_status(),
         "gemini_studio_url": _GEMINI_STUDIO_URL,
+        "billing": billing_summary(),
     }
     return render(request, "common/home.html", ctx)
 

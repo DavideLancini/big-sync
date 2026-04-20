@@ -90,6 +90,32 @@
     </section>
 
     <section>
+      <h2>Google Cloud Billing</h2>
+      {% if billing.error %}
+      <div class="card" style="border-color:#7c2d12;">
+        <div class="val amber" style="font-size:0.9rem;">✕ {{ billing.error }}</div>
+      </div>
+      {% elif billing.budgets %}
+      <div class="grid">
+        {% for b in billing.budgets %}
+        <div class="card">
+          <div class="val green" style="font-size:1.4rem;">{{ b.current_spend }} {{ b.currency }}</div>
+          <div class="label">Spesa attuale</div>
+          {% if b.budget_amount %}
+          <div style="font-size:0.72rem;color:#64748b;margin-top:0.25rem;">budget: {{ b.budget_amount }} {{ b.currency }}</div>
+          {% endif %}
+          <div style="font-size:0.72rem;color:#94a3b8;margin-top:0.5rem;font-weight:600;">{{ b.display_name }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="card">
+        <div class="val" style="font-size:0.85rem;color:#64748b;">Nessun budget configurato.</div>
+      </div>
+      {% endif %}
+    </section>
+
+    <section>
       <h2>Output totale</h2>
       <div class="grid">
         <div class="card">
