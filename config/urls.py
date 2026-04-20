@@ -18,10 +18,12 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
-from common.views import dashboard, run_command
+from common.views import dashboard, login_view, logout_view, run_command
 
 urlpatterns = [
     path("", dashboard, name="dashboard"),
+    path("login/", login_view, name="login"),
+    path("logout/", logout_view, name="logout"),
     path("run/<str:action>/", run_command, name="run_command"),
     path("admin/", admin.site.urls),
 ]

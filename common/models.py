@@ -54,3 +54,19 @@ class ContactsSyncLog(models.Model):
 
     def __str__(self):
         return f"{self.synced_at:%Y-%m-%d %H:%M} — {self.contacts_count} contacts"
+
+
+class ActiveSession(models.Model):
+    """Singleton: tracks the one currently valid dashboard session."""
+    id = models.IntegerField(primary_key=True, default=1, editable=False)
+    session_key = models.CharField(max_length=64, blank=True, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @classmethod
+    def get_current_key(cls) -> str:
+        obj, _ = cls.objects.get_or_create(id=1)
+        return obj.session_key
+
+    @classmethod
+    def set_key(cls, key: str):
+        cls.objects.update_or_create(id=1, defaults={"session_key": key})

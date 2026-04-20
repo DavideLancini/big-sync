@@ -3,15 +3,47 @@ import os
 import subprocess
 import sys
 
+from decouple import config as env_config
 from django.http import JsonResponse, StreamingHttpResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
 
-from common.models import Contact, WriteLog
+from common.models import ActiveSession, Contact, WriteLog
 from sources.telegram.models import TelegramMessage
+
+_SESSION_KEY = "dashboard_auth"
+
+
+def _is_authenticated(request):
+    return (
+        request.session.get(_SESSION_KEY) is True
+        and request.session.session_key == ActiveSession.get_current_key()
+    )
+
+
+def login_view(request):
+    error = None
+    if request.method == "POST":
+        password = request.POST.get("password", "")
+        if password == env_config("DASHBOARD_PASSWORD"):
+            request.session.cycle_key()
+            request.session[_SESSION_KEY] = True
+            ActiveSession.set_key(request.session.session_key)
+            return redirect("dashboard")
+        error = "Password errata."
+    return render(request, "common/login.html", {"error": error})
+
+
+def logout_view(request):
+    request.session.flush()
+    return redirect("login")
 
 
 def dashboard(request):
+    if not _is_authenticated(request):
+        return redirect("login")
+
     total_msgs = TelegramMessage.objects.count()
     analyzed_msgs = TelegramMessage.objects.filter(processed=True).count()
 
@@ -43,6 +75,9 @@ def dashboard(request):
 
 @csrf_exempt
 def run_command(request, action):
+    if not _is_authenticated(request):
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+
     manage = [sys.executable, "-u", "manage.py"]
     commands = {
         "import": manage + ["telegram_import_history", "--gap-check"],
