@@ -145,10 +145,7 @@
             <svg class="topic-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><polyline points="6 9 12 15 18 9"/></svg>
           </div>
         </div>
-        <div class="topic-body">
-          {% for para in s.text|linebreaksbr|cut:"<br>" %}{% endfor %}
-          {{ s.text|linebreaksp }}
-        </div>
+        <div class="topic-body">{{ s.text|linebreaks }}</div>
       </div>
       {% endfor %}
     </div>
