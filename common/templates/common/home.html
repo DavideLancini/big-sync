@@ -65,6 +65,31 @@
     </div>
 
     <section>
+      <h2>Gemini API</h2>
+      <div class="grid">
+        <div class="card">
+          <div class="val {% if gemini_status.ok %}green{% else %}amber{% endif %}" style="font-size:1rem;padding:0.25rem 0;">
+            {% if gemini_status.ok %}● Operativo{% else %}✕ Errore{% endif %}
+          </div>
+          <div class="label" style="margin-top:0.5rem;">
+            {% if gemini_status.ok %}{{ gemini_status.models }} modelli disponibili{% else %}{{ gemini_status.error }}{% endif %}
+          </div>
+        </div>
+        <div class="card">
+          <div class="val accent">{{ telegram_analyzed }}</div>
+          <div class="label">Chiamate stimate (msg analizzati)</div>
+        </div>
+        <div class="card" style="display:flex;align-items:center;">
+          <a href="{{ gemini_studio_url }}" target="_blank" rel="noopener"
+             style="display:flex;align-items:center;gap:0.5rem;color:#6366f1;font-size:0.8rem;font-weight:600;text-decoration:none;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;flex-shrink:0;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            Verifica credito su AI Studio
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <section>
       <h2>Output totale</h2>
       <div class="grid">
         <div class="card">

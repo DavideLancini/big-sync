@@ -39,6 +39,20 @@ def logout_view(request):
     return redirect("login")
 
 
+_GEMINI_STUDIO_URL = "https://aistudio.google.com/app/apikey"
+
+def _gemini_status() -> dict:
+    """Try a minimal Gemini call to verify the key is working."""
+    try:
+        from workflows.gemini import _get_client
+        client = _get_client()
+        # list models — cheapest possible call, no tokens billed
+        models = list(client.models.list())
+        return {"ok": True, "models": len(models)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:80]}
+
+
 def home(request):
     if not _is_authenticated(request):
         return redirect("login")
@@ -48,10 +62,11 @@ def home(request):
     total_tasks = WriteLog.objects.filter(type=WriteLog.TYPE_TASK).count()
     total_contacts_written = WriteLog.objects.filter(type=WriteLog.TYPE_CONTACT).count()
 
-    recent_activity = WriteLog.objects.select_related().order_by("-created_at")[:10]
+    recent_activity = WriteLog.objects.order_by("-created_at")[:10]
 
     telegram_total = TelegramMessage.objects.count()
     telegram_pending = TelegramMessage.objects.filter(processed=False).count()
+    telegram_analyzed = telegram_total - telegram_pending
 
     ctx = {
         "total_contacts": total_contacts,
@@ -61,8 +76,31 @@ def home(request):
         "recent_activity": recent_activity,
         "telegram_total": telegram_total,
         "telegram_pending": telegram_pending,
+        "telegram_analyzed": telegram_analyzed,
+        "gemini_status": _gemini_status(),
+        "gemini_studio_url": _GEMINI_STUDIO_URL,
     }
     return render(request, "common/home.html", ctx)
+
+
+_SOURCE_LABELS = {
+    "whatsapp":       "WhatsApp",
+    "email":          "Email",
+    "teams":          "Microsoft Teams",
+    "clickup":        "ClickUp",
+    "sms":            "SMS",
+    "github":         "GitHub",
+    "gdrive":         "Google Drive",
+    "homeassistant":  "Home Assistant",
+    "rss":            "RSS Feed",
+}
+
+
+def source_placeholder(request, source):
+    if not _is_authenticated(request):
+        return redirect("login")
+    label = _SOURCE_LABELS.get(source, source)
+    return render(request, "common/placeholder.html", {"source": source, "label": label})
 
 
 def telegram_dashboard(request):
