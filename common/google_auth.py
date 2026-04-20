@@ -10,6 +10,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/tasks",
     "https://www.googleapis.com/auth/drive.file",
     "https://www.googleapis.com/auth/cloud-billing.readonly",
+    "https://mail.google.com/",
 ]
 
 
