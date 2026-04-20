@@ -1,4 +1,5 @@
 asgiref==3.11.1
+feedparser==6.0.11
 dj-database-url==3.1.2
 Django==6.0.4
 google-api-python-client==2.169.0

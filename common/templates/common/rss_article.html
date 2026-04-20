@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ article.title }} – big-sync</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; display: flex; }
+    /* Sidebar */
+    .sidebar { width: 56px; min-height: 100vh; background: #13151f; border-right: 1px solid #1e2030; display: flex; flex-direction: column; align-items: center; padding: 1rem 0; gap: 0.25rem; flex-shrink: 0; }
+    .sidebar .logo { font-size: 1.1rem; font-weight: 800; color: #6366f1; margin-bottom: 1rem; letter-spacing: -0.05em; }
+    .nav-item { position: relative; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 10px; transition: background 0.15s; }
+    .nav-item.active { background: #1e2030; color: #6366f1; }
+    .nav-item:not(.active) { color: #2d3148; }
+    .nav-item svg { width: 20px; height: 20px; }
+    .nav-item .tooltip { position: absolute; left: 52px; background: #1e2030; color: #e2e8f0; font-size: 0.7rem; font-weight: 500; padding: 0.3rem 0.6rem; border-radius: 6px; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.15s; border: 1px solid #2d3148; z-index: 10; }
+    .nav-item:hover .tooltip { opacity: 1; }
+    .sidebar-divider { width: 24px; height: 1px; background: #1e2030; margin: 0.25rem 0; }
+    .sidebar-spacer { flex: 1; }
+    /* Main */
+    main { flex: 1; padding: 2rem; overflow-y: auto; }
+    .article-wrap { max-width: 740px; }
+    .back { display: inline-flex; align-items: center; gap: 0.4rem; color: #64748b; font-size: 0.78rem; font-weight: 600; text-decoration: none; margin-bottom: 1.5rem; }
+    .back:hover { color: #94a3b8; }
+    .back svg { width: 14px; height: 14px; }
+    .article-meta { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1rem; flex-wrap: wrap; }
+    .source-badge { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; background: #13151f; color: #6366f1; padding: 0.2rem 0.5rem; border-radius: 5px; border: 1px solid #2d3148; }
+    .article-date { font-size: 0.72rem; color: #475569; }
+    h1 { font-size: 1.4rem; font-weight: 700; color: #fff; line-height: 1.35; margin-bottom: 1rem; letter-spacing: -0.02em; }
+    .article-link { display: inline-flex; align-items: center; gap: 0.35rem; color: #6366f1; font-size: 0.78rem; font-weight: 600; text-decoration: none; margin-bottom: 1.5rem; }
+    .article-link:hover { color: #a5b4fc; }
+    .article-link svg { width: 13px; height: 13px; }
+    .divider { height: 1px; background: #1e2030; margin: 1.5rem 0; }
+    /* Article body */
+    .article-body { font-size: 0.9rem; line-height: 1.75; color: #cbd5e1; }
+    .article-body p { margin-bottom: 1rem; }
+    .article-body img { max-width: 100%; border-radius: 8px; margin: 1rem 0; }
+    .article-body h2, .article-body h3 { color: #e2e8f0; margin: 1.5rem 0 0.5rem; font-size: 1rem; font-weight: 600; }
+    .article-body a { color: #6366f1; text-decoration: underline; }
+    .article-body ul, .article-body ol { padding-left: 1.5rem; margin-bottom: 1rem; }
+    .article-body li { margin-bottom: 0.25rem; }
+    /* Summary fallback */
+    .summary-only { background: #1e2030; border: 1px solid #2d3148; border-radius: 10px; padding: 1.25rem; font-size: 0.88rem; line-height: 1.7; color: #94a3b8; }
+    .no-content { color: #374151; font-style: italic; font-size: 0.875rem; padding: 2rem 0; text-align: center; }
+  </style>
+</head>
+<body>
+  {% with active="rss" %}{% include "common/_sidebar.html" %}{% endwith %}
+
+  <main>
+    <div class="article-wrap">
+      <a href="{% url 'rss' %}" class="back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        Torna ai feed
+      </a>
+
+      <div class="article-meta">
+        <span class="source-badge">{{ article.feed.name }}</span>
+        {% if article.published_at %}
+        <span class="article-date">{{ article.published_at|date:"d/m/Y H:i" }}</span>
+        {% endif %}
+      </div>
+
+      <h1>{{ article.title }}</h1>
+
+      <a href="{{ article.url }}" target="_blank" rel="noopener" class="article-link">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        Leggi sul sito originale
+      </a>
+
+      <div class="divider"></div>
+
+      {% if article.content %}
+        <div class="article-body">{{ article.content|safe }}</div>
+      {% elif article.summary %}
+        <div class="summary-only">{{ article.summary|striptags }}</div>
+      {% else %}
+        <p class="no-content">Contenuto non disponibile. Leggi l'articolo sul sito originale.</p>
+      {% endif %}
+    </div>
+  </main>
+</body>
+</html>

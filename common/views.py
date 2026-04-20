@@ -86,6 +86,41 @@ def home(request):
     return render(request, "common/home.html", ctx)
 
 
+def rss_dashboard(request):
+    if not _is_authenticated(request):
+        return redirect("login")
+
+    from sources.rss.models import RssArticle, RssFeed
+
+    feeds = RssFeed.objects.filter(active=True).order_by("name")
+    feed_filter = request.GET.get("feed")
+    articles = RssArticle.objects.select_related("feed").order_by("-published_at", "-created_at")
+    if feed_filter:
+        articles = articles.filter(feed_id=feed_filter)
+    articles = articles[:200]
+
+    ctx = {
+        "feeds": feeds,
+        "articles": articles,
+        "active_feed": feed_filter,
+        "tab": request.GET.get("tab", "news"),
+    }
+    return render(request, "common/rss.html", ctx)
+
+
+def rss_article(request, pk):
+    if not _is_authenticated(request):
+        return redirect("login")
+
+    from sources.rss.models import RssArticle
+
+    article = RssArticle.objects.select_related("feed").get(pk=pk)
+    if not article.read:
+        article.read = True
+        article.save(update_fields=["read"])
+    return render(request, "common/rss_article.html", {"article": article})
+
+
 _SOURCE_LABELS = {
     "whatsapp":       "WhatsApp",
     "email":          "Email",
@@ -149,6 +184,7 @@ def run_command(request, action):
         "import": manage + ["telegram_import_history", "--gap-check"],
         "analyze": manage + ["telegram_analyze_history", "--one-chat"],
         "analyze_all": manage + ["telegram_analyze_history"],
+        "rss_fetch": manage + ["rss_fetch"],
     }
     if action not in commands:
         return JsonResponse({"error": "Unknown action"}, status=400)

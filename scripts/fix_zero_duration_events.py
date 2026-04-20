@@ -20,8 +20,8 @@ from common.google_auth import get_credentials
 
 DRY_RUN = "--dry-run" in sys.argv
 CALENDAR_ID = "primary"
-TIME_MIN = "2026-01-01T00:00:00Z"
-TIME_MAX = "2026-12-31T23:59:59Z"
+TIME_MIN = "2024-01-01T00:00:00Z"
+TIME_MAX = "2025-12-31T23:59:59Z"
 PAGE_SIZE = 250
 
 
