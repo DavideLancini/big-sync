@@ -1,4 +1,4 @@
-"""Dashboard view."""
+"""Dashboard views."""
 import os
 import subprocess
 import sys
@@ -7,7 +7,6 @@ from decouple import config as env_config
 from django.http import JsonResponse, StreamingHttpResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
 
 from common.models import ActiveSession, Contact, WriteLog
 from sources.telegram.models import TelegramMessage
@@ -30,7 +29,7 @@ def login_view(request):
             request.session.cycle_key()
             request.session[_SESSION_KEY] = True
             ActiveSession.set_key(request.session.session_key)
-            return redirect("dashboard")
+            return redirect("home")
         error = "Password errata."
     return render(request, "common/login.html", {"error": error})
 
@@ -40,7 +39,33 @@ def logout_view(request):
     return redirect("login")
 
 
-def dashboard(request):
+def home(request):
+    if not _is_authenticated(request):
+        return redirect("login")
+
+    total_contacts = Contact.objects.count()
+    total_events = WriteLog.objects.filter(type=WriteLog.TYPE_EVENT).count()
+    total_tasks = WriteLog.objects.filter(type=WriteLog.TYPE_TASK).count()
+    total_contacts_written = WriteLog.objects.filter(type=WriteLog.TYPE_CONTACT).count()
+
+    recent_activity = WriteLog.objects.select_related().order_by("-created_at")[:10]
+
+    telegram_total = TelegramMessage.objects.count()
+    telegram_pending = TelegramMessage.objects.filter(processed=False).count()
+
+    ctx = {
+        "total_contacts": total_contacts,
+        "total_events": total_events,
+        "total_tasks": total_tasks,
+        "total_contacts_written": total_contacts_written,
+        "recent_activity": recent_activity,
+        "telegram_total": telegram_total,
+        "telegram_pending": telegram_pending,
+    }
+    return render(request, "common/home.html", ctx)
+
+
+def telegram_dashboard(request):
     if not _is_authenticated(request):
         return redirect("login")
 
@@ -70,7 +95,7 @@ def dashboard(request):
         "total_contacts": total_contacts,
         "contacts_with_notes": contacts_with_notes,
     }
-    return render(request, "common/dashboard.html", ctx)
+    return render(request, "common/telegram.html", ctx)
 
 
 @csrf_exempt

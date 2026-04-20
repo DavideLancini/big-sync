@@ -18,10 +18,11 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
-from common.views import dashboard, login_view, logout_view, run_command
+from common.views import home, login_view, logout_view, run_command, telegram_dashboard
 
 urlpatterns = [
-    path("", dashboard, name="dashboard"),
+    path("", home, name="home"),
+    path("telegram/", telegram_dashboard, name="telegram"),
     path("login/", login_view, name="login"),
     path("logout/", logout_view, name="logout"),
     path("run/<str:action>/", run_command, name="run_command"),
