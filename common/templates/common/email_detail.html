@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ msg.subject|default:"Email" }} – big-sync</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; display: flex; }
+    .sidebar { width: 56px; min-height: 100vh; background: #13151f; border-right: 1px solid #1e2030; display: flex; flex-direction: column; align-items: center; padding: 1rem 0; gap: 0.25rem; flex-shrink: 0; }
+    .sidebar .logo { font-size: 1.1rem; font-weight: 800; color: #6366f1; margin-bottom: 1rem; letter-spacing: -0.05em; }
+    .nav-item { position: relative; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 10px; transition: background 0.15s; }
+    .nav-item.active { background: #1e2030; color: #6366f1; }
+    .nav-item:not(.active) { color: #2d3148; }
+    .nav-item svg { width: 20px; height: 20px; }
+    .nav-item .tooltip { position: absolute; left: 52px; background: #1e2030; color: #e2e8f0; font-size: 0.7rem; font-weight: 500; padding: 0.3rem 0.6rem; border-radius: 6px; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.15s; border: 1px solid #2d3148; z-index: 10; }
+    .nav-item:hover .tooltip { opacity: 1; }
+    .sidebar-divider { width: 24px; height: 1px; background: #1e2030; margin: 0.25rem 0; }
+    .sidebar-spacer { flex: 1; }
+    main { flex: 1; padding: 2rem; overflow-y: auto; }
+    .wrap { max-width: 760px; }
+    .back { display: inline-flex; align-items: center; gap: 0.4rem; color: #64748b; font-size: 0.78rem; font-weight: 600; text-decoration: none; margin-bottom: 1.5rem; }
+    .back:hover { color: #94a3b8; }
+    .back svg { width: 14px; height: 14px; }
+    .email-header { background: #1e2030; border: 1px solid #2d3148; border-radius: 12px; padding: 1.25rem; margin-bottom: 1.25rem; }
+    h1 { font-size: 1.15rem; font-weight: 700; color: #fff; line-height: 1.35; margin-bottom: 0.85rem; letter-spacing: -0.01em; }
+    .meta-row { display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.35rem; flex-wrap: wrap; }
+    .meta-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #475569; min-width: 44px; }
+    .meta-val { font-size: 0.8rem; color: #94a3b8; }
+    .divider { height: 1px; background: #2d3148; margin: 0.85rem 0; }
+    .tag-row { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.75rem; }
+    .tag { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.15rem 0.5rem; border-radius: 5px; }
+    .gmail-link { display: inline-flex; align-items: center; gap: 0.35rem; color: #6366f1; font-size: 0.78rem; font-weight: 600; text-decoration: none; }
+    .gmail-link:hover { color: #a5b4fc; }
+    .gmail-link svg { width: 13px; height: 13px; }
+    .body { font-size: 0.875rem; line-height: 1.75; color: #cbd5e1; white-space: pre-wrap; word-break: break-word; background: #1e2030; border: 1px solid #2d3148; border-radius: 10px; padding: 1.25rem; }
+  </style>
+</head>
+<body>
+  {% with active="email" %}{% include "common/_sidebar.html" %}{% endwith %}
+
+  <main>
+    <div class="wrap">
+      <a href="{% url 'email' %}" class="back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        Torna alle email
+      </a>
+
+      <div class="email-header">
+        <h1>{{ msg.subject|default:"(nessun oggetto)" }}</h1>
+        <div class="meta-row">
+          <span class="meta-label">Da</span>
+          <span class="meta-val">{% if msg.sender %}{{ msg.sender }} &lt;{{ msg.sender_email }}&gt;{% else %}{{ msg.sender_email }}{% endif %}</span>
+        </div>
+        {% if msg.date %}
+        <div class="meta-row">
+          <span class="meta-label">Data</span>
+          <span class="meta-val">{{ msg.date|date:"d/m/Y H:i" }}</span>
+        </div>
+        {% endif %}
+        <div class="divider"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+          <div class="tag-row">
+            {% for tag in msg.tags.all %}
+            <span class="tag" style="background:{{ tag.color }}22;color:{{ tag.color }};">{{ tag.name }}</span>
+            {% empty %}
+            <span style="font-size:0.72rem;color:#475569;font-style:italic;">Non ancora analizzata</span>
+            {% endfor %}
+          </div>
+          <a href="https://mail.google.com/mail/u/0/#inbox/{{ msg.gmail_id }}" target="_blank" rel="noopener" class="gmail-link">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            Apri in Gmail
+          </a>
+        </div>
+      </div>
+
+      <div class="body">{% if msg.body_text %}{{ msg.body_text }}{% else %}{{ msg.snippet }}{% endif %}</div>
+    </div>
+  </main>
+</body>
+</html>

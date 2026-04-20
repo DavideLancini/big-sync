@@ -87,6 +87,43 @@ def home(request):
     return render(request, "common/home.html", ctx)
 
 
+def email_dashboard(request):
+    if not _is_authenticated(request):
+        return redirect("login")
+
+    from sources.email_source.models import EmailTag, GmailMessage
+
+    tag_filter = request.GET.get("tag")
+    messages = GmailMessage.objects.prefetch_related("tags").order_by("-date")
+    if tag_filter:
+        messages = messages.filter(tags__name=tag_filter)
+    messages = messages[:200]
+
+    from django.db.models import Count
+    tags = EmailTag.objects.annotate(
+        count=Count("messages")
+    ).filter(count__gt=0).order_by("name")
+
+    ctx = {
+        "messages": messages,
+        "tags": tags,
+        "active_tag": tag_filter,
+        "total": GmailMessage.objects.count(),
+        "unanalyzed": GmailMessage.objects.filter(analyzed=False).count(),
+    }
+    return render(request, "common/email.html", ctx)
+
+
+def email_detail(request, gmail_id):
+    if not _is_authenticated(request):
+        return redirect("login")
+
+    from sources.email_source.models import GmailMessage
+
+    msg = GmailMessage.objects.prefetch_related("tags").get(gmail_id=gmail_id)
+    return render(request, "common/email_detail.html", {"msg": msg})
+
+
 def rss_dashboard(request):
     if not _is_authenticated(request):
         return redirect("login")
@@ -243,6 +280,9 @@ def run_command(request, action):
         "analyze": manage + ["telegram_analyze_history", "--one-chat"],
         "analyze_all": manage + ["telegram_analyze_history"],
         "rss_update": manage + ["rss_update"],
+        "gmail_import": manage + ["gmail_import", "--full"],
+        "gmail_sync": manage + ["gmail_sync"],
+        "gmail_analyze": manage + ["gmail_analyze"],
     }
 
     if action.startswith("rss_audio:"):
