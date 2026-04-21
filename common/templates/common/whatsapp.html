@@ -61,6 +61,18 @@
       <h1>big<span>-sync</span> · WhatsApp</h1>
     </div>
 
+    {% if days_to_repair >= 0 %}
+    <div style="background:#3a2a1a;border:1px solid #7c5e1a;border-radius:10px;padding:0.85rem 1.1rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:0.75rem;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      <div style="font-size:0.8rem;color:#fbbf24;line-height:1.4;">
+        <strong>Promemoria:</strong> rifare il pairing per recuperare lo storico entro
+        <strong>{{ repair_date|date:"d/m/Y" }}</strong>
+        {% if days_to_repair == 0 %}(oggi){% elif days_to_repair == 1 %}(domani){% else %}(tra {{ days_to_repair }} giorni){% endif %}.
+        <span style="color:#94a3b8;font-weight:400;">Cancellare <code>whatsapp_session.sqlite3</code> e riavviare il listener → inserire il nuovo codice sul telefono.</span>
+      </div>
+    </div>
+    {% endif %}
+
     <section>
       <h2>Messaggi WhatsApp</h2>
       <div class="grid">

@@ -244,9 +244,21 @@ def source_placeholder(request, source):
     return render(request, "common/placeholder.html", {"source": source, "label": label})
 
 
+_WHATSAPP_REPAIR_DATE = None  # set below
+def _init_repair_date():
+    from datetime import date
+    global _WHATSAPP_REPAIR_DATE
+    _WHATSAPP_REPAIR_DATE = date(2026, 4, 24)
+_init_repair_date()
+
+
 def whatsapp_dashboard(request):
     if not _is_authenticated(request):
         return redirect("login")
+
+    from datetime import date
+    today = date.today()
+    days_to_repair = (_WHATSAPP_REPAIR_DATE - today).days
 
     total_msgs = WhatsAppMessage.objects.count()
     analyzed_msgs = WhatsAppMessage.objects.filter(processed=True).count()
@@ -273,6 +285,8 @@ def whatsapp_dashboard(request):
         "last_task": last_task,
         "total_contacts": total_contacts,
         "contacts_with_notes": contacts_with_notes,
+        "repair_date": _WHATSAPP_REPAIR_DATE,
+        "days_to_repair": days_to_repair,
     }
     return render(request, "common/whatsapp.html", ctx)
 
