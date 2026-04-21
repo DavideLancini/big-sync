@@ -1,17 +1,16 @@
 """
-Backfill: take every existing todo source (Google Tasks in 'big-sync' tasklist
-and any existing '[todo] ...' Calendar events) and re-place them as Calendar
-events with a consistent 30-minute duration, anchored at 08:00 with
-conflict-aware slot scanning.
+Backfill: take every existing todo source (all Google Tasks lists + any
+existing '[todo] ...' Calendar events) and re-place them as 30-minute
+Calendar events. Anchor day is the task/event origin day; if that day is
+full, overflow onto following days up to TODAY (never beyond).
 
 Flow:
-1. Collect originals from both sources. Anchor day comes from due/updated
-   for tasks and from event start date for existing todo events.
+1. Collect originals from every tasklist AND existing '[todo] ' Calendar events.
 2. Delete originals up-front so they don't block their own re-placement.
-3. Place everything fresh: 08:00→20:00, 30-min slots, skipping existing
-   (non-todo) events and slots already filled earlier in this run.
+3. Place chronologically: try anchor day, then +1, +2, ... up to today, skipping
+   slots conflicting with existing (non-todo) events and same-day placements.
 
-Safe to re-run: each pass consolidates whatever's left.
+Safe to re-run: consolidates whatever's left.
 """
 import logging
 from datetime import datetime, timedelta
@@ -24,16 +23,14 @@ from outputs.todos import create_todo_event_at, find_free_slot
 
 logger = logging.getLogger(__name__)
 
-_TASKLIST_TITLE = "big-sync"
 _DURATION_MIN = 30
 _TODO_PREFIX = "[todo] "
-# Search horizon for existing [todo] events
 _LOOKBACK_DAYS = 365
 _LOOKAHEAD_DAYS = 365
 
 
 class Command(BaseCommand):
-    help = "Backfill todos (tasklist + existing [todo] events) into 30-min Calendar events."
+    help = "Backfill todos from all tasklists + existing [todo] events into 30-min Calendar events."
 
     def add_arguments(self, parser):
         parser.add_argument("--dry-run", action="store_true", help="Print plan without writing.")
@@ -46,26 +43,29 @@ class Command(BaseCommand):
         tasks_svc = build("tasks", "v1", credentials=creds)
         cal_svc = build("calendar", "v3", credentials=creds)
 
-        tasklist_id = self._find_tasklist(tasks_svc)
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
         originals: list[dict] = []
 
-        if tasklist_id:
-            self.stdout.write(f"Fetching Google Tasks from '{_TASKLIST_TITLE}'...")
-            for t in self._list_all_tasks(tasks_svc, tasklist_id):
+        tasklists = tasks_svc.tasklists().list().execute().get("items", [])
+        self.stdout.write(f"Scanning {len(tasklists)} tasklist(s)...")
+        for tl in tasklists:
+            tl_id = tl["id"]
+            tl_title = tl.get("title", "?")
+            count_before = len(originals)
+            for t in self._list_all_tasks(tasks_svc, tl_id):
                 day = self._anchor_day_from_task(t)
                 if day is None:
                     continue
                 originals.append({
                     "source": "task",
+                    "tasklist_id": tl_id,
                     "id": t["id"],
                     "title": t.get("title", "").strip(),
                     "notes": t.get("notes", ""),
                     "day": day,
                 })
-            self.stdout.write(f"  {len(originals)} tasks found")
-        else:
-            self.stdout.write(f"Tasklist '{_TASKLIST_TITLE}' not found — skipping task collection.")
+            self.stdout.write(f"  {tl_title}: +{len(originals) - count_before} tasks")
 
         self.stdout.write("Fetching existing [todo] calendar events...")
         existing_events = self._list_todo_events(cal_svc)
@@ -90,73 +90,89 @@ class Command(BaseCommand):
 
         self.stdout.write(f"\nTotal originals: {len(originals)}")
 
-        # Delete originals first (unless keeping or dry-run), so they don't
-        # block their own re-placement.
         if not options["dry_run"] and not options["keep_originals"]:
             self.stdout.write("Deleting originals...")
             for o in originals:
                 try:
                     if o["source"] == "task":
-                        tasks_svc.tasks().delete(tasklist=tasklist_id, task=o["id"]).execute()
+                        tasks_svc.tasks().delete(
+                            tasklist=o["tasklist_id"], task=o["id"]
+                        ).execute()
                     else:
-                        cal_svc.events().delete(calendarId="primary", eventId=o["id"]).execute()
+                        cal_svc.events().delete(
+                            calendarId="primary", eventId=o["id"]
+                        ).execute()
                 except Exception:
                     logger.exception("Failed to delete %s %s", o["source"], o["id"])
 
-        # Group by day in chronological order (preserve input order within day)
-        by_day: dict[datetime, list[dict]] = {}
-        for o in originals:
-            by_day.setdefault(o["day"], []).append(o)
+        # Chronological order, then fill days sequentially with overflow
+        originals.sort(key=lambda o: o["day"])
 
+        busy_per_day: dict[datetime, list[tuple[datetime, datetime]]] = {}
         total_created = 0
         total_skipped = 0
 
-        for day, items in sorted(by_day.items()):
-            self.stdout.write(f"\n{day.date().isoformat()} — {len(items)} todos")
-            local_busy: list[tuple[datetime, datetime]] = []
+        for o in originals:
+            title = o["title"]
+            if not title:
+                continue
 
-            for o in items:
-                title = o["title"]
-                if not title:
-                    continue
+            start_day = o["day"]
+            slot = None
+            landed_day = None
 
-                slot = find_free_slot(
-                    cal_svc, day, duration_min=_DURATION_MIN, extra_busy=local_busy
+            # If origin is in the future: only try that day (no overflow)
+            if start_day > today:
+                busy = busy_per_day.setdefault(start_day, [])
+                slot = find_free_slot(cal_svc, start_day, duration_min=_DURATION_MIN, extra_busy=busy)
+                if slot:
+                    landed_day = start_day
+            else:
+                # Past/today: try anchor day, then +1, +2, ... up to today
+                d = start_day
+                while d <= today:
+                    busy = busy_per_day.setdefault(d, [])
+                    slot = find_free_slot(cal_svc, d, duration_min=_DURATION_MIN, extra_busy=busy)
+                    if slot:
+                        landed_day = d
+                        break
+                    d += timedelta(days=1)
+
+            if slot is None or landed_day is None:
+                self.stdout.write(f"  [SKIP] {start_day.date()} → {title}")
+                total_skipped += 1
+                continue
+
+            overflow_marker = "" if landed_day == start_day else f" (da {start_day.date()})"
+
+            if options["dry_run"]:
+                self.stdout.write(
+                    f"  [DRY] {landed_day.date()} {slot.strftime('%H:%M')} → {title}{overflow_marker}"
                 )
-                if slot is None:
-                    self.stdout.write(f"  [SKIP] {title} — no free slot")
-                    total_skipped += 1
-                    continue
-
-                if options["dry_run"]:
-                    self.stdout.write(f"  [DRY] {slot.strftime('%H:%M')} → {title}")
-                else:
-                    ev_id = create_todo_event_at(
-                        cal_svc,
-                        title=title,
-                        start=slot,
-                        duration_min=_DURATION_MIN,
-                        notes=o["notes"],
+            else:
+                ev_id = create_todo_event_at(
+                    cal_svc,
+                    title=title,
+                    start=slot,
+                    duration_min=_DURATION_MIN,
+                    notes=o["notes"],
+                )
+                if ev_id:
+                    total_created += 1
+                    self.stdout.write(
+                        f"  [OK]  {landed_day.date()} {slot.strftime('%H:%M')} → {title}{overflow_marker}"
                     )
-                    if ev_id:
-                        total_created += 1
-                        self.stdout.write(f"  [OK]  {slot.strftime('%H:%M')} → {title}")
-                    else:
-                        total_skipped += 1
-                        self.stdout.write(f"  [FAIL] {title}")
+                else:
+                    total_skipped += 1
+                    self.stdout.write(f"  [FAIL] {title}")
 
-                local_busy.append((slot, slot + timedelta(minutes=_DURATION_MIN)))
+            busy_per_day[landed_day].append(
+                (slot, slot + timedelta(minutes=_DURATION_MIN))
+            )
 
         self.stdout.write(self.style.SUCCESS(
             f"\nDone. Created: {total_created}, skipped: {total_skipped}"
         ))
-
-    def _find_tasklist(self, svc) -> str | None:
-        result = svc.tasklists().list().execute()
-        for tl in result.get("items", []):
-            if tl.get("title") == _TASKLIST_TITLE:
-                return tl["id"]
-        return None
 
     def _list_all_tasks(self, svc, tasklist_id: str) -> list[dict]:
         tasks = []
@@ -199,7 +215,6 @@ class Command(BaseCommand):
             page_token = result.get("nextPageToken")
             if not page_token:
                 break
-        # Filter to only those that actually start with the prefix
         return [e for e in events if e.get("summary", "").startswith(_TODO_PREFIX)]
 
     def _anchor_day_from_task(self, task: dict) -> datetime | None:
