@@ -164,8 +164,8 @@ class Command(BaseCommand):
         while True:
             params = {
                 "tasklist": tasklist_id,
-                "showCompleted": False,
-                "showHidden": False,
+                "showCompleted": True,
+                "showHidden": True,
                 "maxResults": 100,
             }
             if page_token:
