@@ -14,6 +14,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from sources.whatsapp.models import WhatsAppMessage, WaMediaType
+from sources.whatsapp.media import download_media
 from sources.whatsapp.parse import parse_event
 from workflows.gemini import AUDIO_MEDIA_TYPES
 from workflows.workflow_telegram import process_realtime_message
@@ -27,6 +28,12 @@ def _session_path() -> str:
     return config(
         "WHATSAPP_SESSION_FILE",
         default=str(settings.BASE_DIR / "whatsapp_session.sqlite3"),
+    )
+
+
+def _update_media_path(pk: int, path: str):
+    WhatsAppMessage.objects.filter(pk=pk).update(
+        media_path=path, media_downloaded=True
     )
 
 
@@ -143,6 +150,12 @@ class Command(BaseCommand):
                 f"[{parsed['media_type']}] [{chat_name}] {parsed['sender_name']}: "
                 f"{(parsed['text'] or '')[:80]}"
             )
+
+            if parsed["media_type"] != WaMediaType.TEXT:
+                path = await download_media(client, event, chat_name, parsed["media_type"])
+                if path:
+                    await sync_to_async(_update_media_path)(obj.pk, path)
+                    self.stdout.write(f"  → media saved: {path}")
 
             try:
                 counts = await sync_to_async(_analyze)(obj)

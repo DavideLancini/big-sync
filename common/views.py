@@ -11,6 +11,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from common.models import ActiveSession, Contact, WriteLog
 from sources.telegram.models import TelegramMessage
+from sources.whatsapp.models import WhatsAppMessage
 
 _SESSION_KEY = "dashboard_auth"
 
@@ -71,6 +72,10 @@ def home(request):
     telegram_pending = TelegramMessage.objects.filter(processed=False).count()
     telegram_analyzed = telegram_total - telegram_pending
 
+    whatsapp_total = WhatsAppMessage.objects.count()
+    whatsapp_pending = WhatsAppMessage.objects.filter(processed=False).count()
+    whatsapp_analyzed = whatsapp_total - whatsapp_pending
+
     ctx = {
         "total_contacts": total_contacts,
         "total_events": total_events,
@@ -80,6 +85,9 @@ def home(request):
         "telegram_total": telegram_total,
         "telegram_pending": telegram_pending,
         "telegram_analyzed": telegram_analyzed,
+        "whatsapp_total": whatsapp_total,
+        "whatsapp_pending": whatsapp_pending,
+        "whatsapp_analyzed": whatsapp_analyzed,
         "gemini_status": _gemini_status(),
         "gemini_studio_url": _GEMINI_STUDIO_URL,
         "billing": billing_summary(),
@@ -236,6 +244,39 @@ def source_placeholder(request, source):
     return render(request, "common/placeholder.html", {"source": source, "label": label})
 
 
+def whatsapp_dashboard(request):
+    if not _is_authenticated(request):
+        return redirect("login")
+
+    total_msgs = WhatsAppMessage.objects.count()
+    analyzed_msgs = WhatsAppMessage.objects.filter(processed=True).count()
+
+    last_received = WhatsAppMessage.objects.order_by("-date").first()
+    last_analyzed = WhatsAppMessage.objects.filter(processed=True).order_by("-date").first()
+
+    last_contact = WriteLog.objects.filter(type=WriteLog.TYPE_CONTACT).first()
+    last_event = WriteLog.objects.filter(type=WriteLog.TYPE_EVENT).first()
+    last_task = WriteLog.objects.filter(type=WriteLog.TYPE_TASK).first()
+
+    total_contacts = Contact.objects.count()
+    contacts_with_notes = Contact.objects.exclude(notes_url="").count()
+
+    ctx = {
+        "total_msgs": total_msgs,
+        "analyzed_msgs": analyzed_msgs,
+        "pending_msgs": total_msgs - analyzed_msgs,
+        "analyzed_pct": round(analyzed_msgs / total_msgs * 100) if total_msgs else 0,
+        "last_received": last_received,
+        "last_analyzed": last_analyzed,
+        "last_contact": last_contact,
+        "last_event": last_event,
+        "last_task": last_task,
+        "total_contacts": total_contacts,
+        "contacts_with_notes": contacts_with_notes,
+    }
+    return render(request, "common/whatsapp.html", ctx)
+
+
 def telegram_dashboard(request):
     if not _is_authenticated(request):
         return redirect("login")
@@ -283,6 +324,8 @@ def run_command(request, action):
         "gmail_import": manage + ["gmail_import", "--full"],
         "gmail_sync": manage + ["gmail_sync"],
         "gmail_analyze": manage + ["gmail_analyze"],
+        "wa_analyze": manage + ["whatsapp_analyze_history", "--one-chat"],
+        "wa_analyze_all": manage + ["whatsapp_analyze_history"],
     }
 
     if action.startswith("rss_audio:"):
