@@ -32,6 +32,20 @@ def _session_path() -> str:
     )
 
 
+def _session_has_no_device(path: str) -> bool:
+    """Return True if the session sqlite file exists but has no paired device row."""
+    import sqlite3
+    try:
+        conn = sqlite3.connect(path)
+        try:
+            cur = conn.execute("SELECT COUNT(*) FROM whatsmeow_device")
+            return (cur.fetchone()[0] or 0) == 0
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return True
+
+
 def _ingest_history(ev) -> int:
     """Persist messages from a HistorySync event. Returns number of new rows."""
     new = 0
@@ -162,15 +176,42 @@ class Command(BaseCommand):
             self.stdout.write("Stopped.")
 
     async def _listen(self):
+        import os
         from neonize.aioze.client import NewAClient
-        from neonize.aioze.events import ConnectedEv, HistorySyncEv, MessageEv
+        from neonize.aioze.events import ConnectedEv, HistorySyncEv, MessageEv, PairStatusEv
 
         session_file = _session_path()
         client = NewAClient(session_file)
 
+        # If the session file is missing or has no paired device, use the phone
+        # number from .env to request a pair code on first boot. Keeps the whole
+        # lifecycle in one process so whatsmeow never sees two connections
+        # racing on the same session (which triggers 401 "logged out from
+        # another device" and wipes the device row).
+        needs_pair = (
+            not os.path.exists(session_file)
+            or os.path.getsize(session_file) == 0
+            or _session_has_no_device(session_file)
+        )
+        pair_phone = config("WHATSAPP_PHONE", default="").strip().replace(" ", "").replace("+", "")
+
+        @client.paircode
+        async def _on_paircode(_, code: str, connected: bool = True):
+            if connected:
+                self.stdout.write(f"✔ Pair code processed: {code}")
+            else:
+                self.stdout.write(
+                    f"\n→ On phone: WhatsApp → Linked Devices → Link with phone number\n"
+                    f"  Enter: {code}\n"
+                )
+
         @client.event(ConnectedEv)
         async def _on_connected(_, __):
             self.stdout.write("✔ Connected to WhatsApp")
+
+        @client.event(PairStatusEv)
+        async def _on_paired(_, ev):
+            self.stdout.write(f"✔ Paired as {ev.ID.User}@{ev.ID.Server}")
 
         @client.event(HistorySyncEv)
         async def _on_history(_, ev):
@@ -238,6 +279,19 @@ class Command(BaseCommand):
                 logger.exception("WA analysis error for pk=%s", obj.pk)
 
         task = await client.connect()
+
+        if needs_pair:
+            if not pair_phone:
+                self.stderr.write("WHATSAPP_PHONE missing in .env — cannot pair.")
+                return
+            # Give connect() a moment to establish the websocket
+            await asyncio.sleep(2)
+            try:
+                code = await client.PairPhone(pair_phone, True)
+                self.stdout.write(f"Requested pair code: {code}")
+            except Exception as e:
+                self.stderr.write(f"PairPhone failed: {e}")
+
         try:
             await task
         except asyncio.CancelledError:
