@@ -21,11 +21,11 @@ def detect_media_type(msg) -> str:
         getattr(msg, "extendedTextMessage", None), "text", None
     ):
         return WaMediaType.TEXT
-    if getattr(msg, "imageMessage", None) and msg.imageMessage.url:
+    if getattr(msg, "imageMessage", None) and msg.imageMessage.URL:
         return WaMediaType.PHOTO
-    if getattr(msg, "videoMessage", None) and msg.videoMessage.url:
+    if getattr(msg, "videoMessage", None) and msg.videoMessage.URL:
         return WaMediaType.VIDEO
-    if getattr(msg, "audioMessage", None) and msg.audioMessage.url:
+    if getattr(msg, "audioMessage", None) and msg.audioMessage.URL:
         return WaMediaType.VOICE if msg.audioMessage.PTT else WaMediaType.AUDIO
     if getattr(msg, "stickerMessage", None) and msg.stickerMessage.URL:
         return WaMediaType.STICKER

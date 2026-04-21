@@ -49,7 +49,8 @@ def _session_has_no_device(path: str) -> bool:
 def _ingest_history(ev) -> int:
     """Persist messages from a HistorySync event. Returns number of new rows."""
     new = 0
-    for conv in ev.conversations:
+    data = ev.Data if hasattr(ev, "Data") else ev
+    for conv in data.conversations:
         chat_jid = conv.ID
         if not chat_jid:
             continue
@@ -217,10 +218,11 @@ class Command(BaseCommand):
         async def _on_history(_, ev):
             try:
                 count = await sync_to_async(_ingest_history)(ev)
+                data = ev.Data if hasattr(ev, "Data") else ev
                 if count:
                     self.stdout.write(
-                        f"[HistorySync type={ev.syncType}] +{count} messages "
-                        f"from {len(ev.conversations)} chats"
+                        f"[HistorySync type={data.syncType}] +{count} messages "
+                        f"from {len(data.conversations)} chats"
                     )
             except Exception:
                 logger.exception("history sync ingest failed")
