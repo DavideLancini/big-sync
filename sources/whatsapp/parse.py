@@ -82,7 +82,7 @@ def parse_event(event) -> dict:
         "message_id": info.ID,
         "chat_jid": chat_jid,
         "sender_jid": sender_jid,
-        "sender_name": info.PushName or "",
+        "sender_name": info.Pushname or "",
         "text": message_text(msg),
         "media_type": detect_media_type(msg),
         "date": when,
