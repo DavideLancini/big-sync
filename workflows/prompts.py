@@ -30,7 +30,9 @@ Rispondi SOLO con un JSON valido, senza testo aggiuntivo, con questa struttura:
   "todos": [
     {
       "title": "...",
-      "due_date": "YYYY-MM-DD",
+      "start_date": "YYYY-MM-DD",
+      "start_time": "HH:MM",
+      "duration_minutes": 15,
       "notes": "...",
       "assigned_to": "me|altro nome"
     }
@@ -42,6 +44,8 @@ Regole:
 - Usa null per i campi non disponibili.
 - Per gli eventi: estrai anche link Google Meet/Zoom/Teams se menzionati.
 - Per i todo: "assigned_to" è "me" se il task è per l'utente, altrimenti il nome della persona.
+- Per i todo: start_date e start_time sono OBBLIGATORI. Se non puoi inferire quando va fatto il task dal contenuto, usa la data/ora del messaggio stesso.
+- Per i todo: duration_minutes è OBBLIGATORIO. Stima una durata realistica in base al tipo di task. Se non puoi stimare, usa 15.
 - Se non c'è nulla da estrarre, restituisci array vuoti.
 - Le date relative (es. "domani", "giovedì") calcolale rispetto alla data del messaggio fornita.
 - Il contesto della chat è: sei l'utente Davide Lancini (@Davidelenc).
