@@ -60,11 +60,19 @@ def parse_event(event) -> dict:
     msg = event.Message
 
     ts = info.Timestamp
-    if isinstance(ts, int):
-        when = datetime.fromtimestamp(ts, tz=dt_timezone.utc)
-    elif hasattr(ts, "seconds"):
-        when = datetime.fromtimestamp(ts.seconds, tz=dt_timezone.utc)
+    seconds: float
+    if hasattr(ts, "seconds"):
+        seconds = ts.seconds
+    elif isinstance(ts, (int, float)):
+        seconds = ts
+        # whatsmeow sometimes returns milliseconds — detect by magnitude
+        if seconds > 1e11:
+            seconds /= 1000
     else:
+        seconds = datetime.now(tz=dt_timezone.utc).timestamp()
+    try:
+        when = datetime.fromtimestamp(seconds, tz=dt_timezone.utc)
+    except (ValueError, OSError):
         when = datetime.now(tz=dt_timezone.utc)
 
     chat_jid = jid_str(src.Chat)
