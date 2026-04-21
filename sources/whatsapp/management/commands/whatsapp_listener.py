@@ -7,6 +7,7 @@ Run via systemd (user-side), not in cron.
 """
 import asyncio
 import logging
+from datetime import datetime, timezone as dt_timezone
 
 from asgiref.sync import sync_to_async
 from decouple import config
@@ -15,7 +16,7 @@ from django.core.management.base import BaseCommand
 
 from sources.whatsapp.models import WhatsAppMessage, WaMediaType
 from sources.whatsapp.media import download_media
-from sources.whatsapp.parse import parse_event
+from sources.whatsapp.parse import parse_event, detect_media_type, message_text, jid_str
 from workflows.gemini import AUDIO_MEDIA_TYPES
 from workflows.workflow_telegram import process_realtime_message
 
@@ -29,6 +30,61 @@ def _session_path() -> str:
         "WHATSAPP_SESSION_FILE",
         default=str(settings.BASE_DIR / "whatsapp_session.sqlite3"),
     )
+
+
+def _ingest_history(ev) -> int:
+    """Persist messages from a HistorySync event. Returns number of new rows."""
+    new = 0
+    for conv in ev.conversations:
+        chat_jid = conv.ID
+        if not chat_jid:
+            continue
+        is_group = chat_jid.endswith("@g.us")
+        chat_name = conv.name or conv.displayName or chat_jid.split("@")[0]
+
+        for hs in conv.messages:
+            wmi = hs.message
+            if not wmi or not wmi.key.ID:
+                continue
+
+            ts = wmi.messageTimestamp or 0
+            try:
+                s = ts / 1000 if ts > 1e11 else ts
+                when = datetime.fromtimestamp(s, tz=dt_timezone.utc)
+            except (ValueError, OSError):
+                continue
+
+            msg_proto = wmi.message
+            mt = detect_media_type(msg_proto) if msg_proto else WaMediaType.TEXT
+            text = message_text(msg_proto) if msg_proto else ""
+
+            sender_jid = ""
+            if is_group and wmi.key.participant:
+                sender_jid = wmi.key.participant
+            else:
+                sender_jid = wmi.key.remoteJID or ""
+
+            try:
+                _, created = WhatsAppMessage.objects.get_or_create(
+                    chat_jid=chat_jid,
+                    message_id=wmi.key.ID,
+                    defaults={
+                        "chat_name": chat_name,
+                        "sender_jid": sender_jid,
+                        "sender_name": (wmi.pushName or "")[:255],
+                        "text": text,
+                        "media_type": mt,
+                        "date": when,
+                        "is_from_me": bool(wmi.key.fromMe),
+                        "is_group": is_group,
+                    },
+                )
+                if created:
+                    new += 1
+            except Exception:
+                logger.exception("failed to save history msg %s in %s",
+                                 wmi.key.ID, chat_jid)
+    return new
 
 
 def _update_media_path(pk: int, path: str):
@@ -107,7 +163,7 @@ class Command(BaseCommand):
 
     async def _listen(self):
         from neonize.aioze.client import NewAClient
-        from neonize.aioze.events import ConnectedEv, MessageEv
+        from neonize.aioze.events import ConnectedEv, HistorySyncEv, MessageEv
 
         session_file = _session_path()
         client = NewAClient(session_file)
@@ -115,6 +171,18 @@ class Command(BaseCommand):
         @client.event(ConnectedEv)
         async def _on_connected(_, __):
             self.stdout.write("✔ Connected to WhatsApp")
+
+        @client.event(HistorySyncEv)
+        async def _on_history(_, ev):
+            try:
+                count = await sync_to_async(_ingest_history)(ev)
+                if count:
+                    self.stdout.write(
+                        f"[HistorySync type={ev.syncType}] +{count} messages "
+                        f"from {len(ev.conversations)} chats"
+                    )
+            except Exception:
+                logger.exception("history sync ingest failed")
 
         @client.event(MessageEv)
         async def _on_message(_, event):
