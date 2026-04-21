@@ -169,4 +169,8 @@ class Command(BaseCommand):
                 self.stderr.write(f"  → analysis error: {e}")
                 logger.exception("WA analysis error for pk=%s", obj.pk)
 
-        await client.connect()
+        task = await client.connect()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
