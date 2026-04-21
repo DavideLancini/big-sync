@@ -120,10 +120,13 @@ def find_free_slot(
     duration_min: int = DEFAULT_DURATION_MIN,
     start_hour: int = 8,
     end_hour: int = 20,
+    extra_busy: list[tuple[datetime, datetime]] | None = None,
 ) -> datetime | None:
     """
     Find the first free slot of `duration_min` on `day` starting at `start_hour`.
-    Scans existing calendar events. Advances by 15-min steps.
+    Considers timed events only (all-day events are ignored — they shouldn't
+    block a 15-minute work slot). `extra_busy` lets callers add locally-known
+    busy intervals (e.g. slots placed earlier in the same backfill run).
     Returns a naive datetime (Europe/Rome assumed) or None if no slot found.
     """
     day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -143,18 +146,19 @@ def find_free_slot(
         e = ev.get("end", {})
         s_dt = s.get("dateTime")
         e_dt = e.get("dateTime")
-        if s_dt and e_dt:
-            s_parsed = datetime.fromisoformat(s_dt.replace("Z", "+00:00")).replace(tzinfo=None)
-            e_parsed = datetime.fromisoformat(e_dt.replace("Z", "+00:00")).replace(tzinfo=None)
-            busy.append((s_parsed, e_parsed))
-        elif s.get("date"):
-            busy.append((day_start, day_end))
+        if not (s_dt and e_dt):
+            continue  # skip all-day events
+        s_parsed = datetime.fromisoformat(s_dt).replace(tzinfo=None)
+        e_parsed = datetime.fromisoformat(e_dt).replace(tzinfo=None)
+        busy.append((s_parsed, e_parsed))
+
+    if extra_busy:
+        busy.extend(extra_busy)
 
     busy.sort()
 
     candidate = day_start.replace(hour=start_hour, minute=0)
     limit = day_start.replace(hour=end_hour, minute=0)
-    step = timedelta(minutes=15)
     dur = timedelta(minutes=duration_min)
 
     while candidate + dur <= limit:
@@ -164,10 +168,9 @@ def find_free_slot(
             if candidate < b_end and slot_end > b_start:
                 conflict = True
                 candidate = b_end
-                # Round up to next 15-min grid
-                minute_mod = candidate.minute % 15
-                if minute_mod:
-                    candidate += timedelta(minutes=15 - minute_mod)
+                mod = candidate.minute % 15
+                if mod:
+                    candidate += timedelta(minutes=15 - mod)
                 candidate = candidate.replace(second=0, microsecond=0)
                 break
         if not conflict:

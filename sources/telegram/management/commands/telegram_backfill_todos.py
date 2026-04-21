@@ -149,34 +149,6 @@ class Command(BaseCommand):
     def _find_slot_considering_local(
         self, cal_svc, day: datetime, local_busy: list[tuple[datetime, datetime]]
     ) -> datetime | None:
-        """Try progressively later start hours, skipping slots clashing with local_busy."""
-        base = find_free_slot(cal_svc, day, duration_min=_DURATION_MIN)
-        if base is None:
-            return None
-
-        candidate = base
-        step = timedelta(minutes=15)
-        dur = timedelta(minutes=_DURATION_MIN)
-        limit = day.replace(hour=20, minute=0)
-
-        while candidate + dur <= limit:
-            slot_end = candidate + dur
-            conflict = False
-            for s, e in local_busy:
-                if candidate < e and slot_end > s:
-                    conflict = True
-                    candidate = e
-                    mod = candidate.minute % 15
-                    if mod:
-                        candidate += timedelta(minutes=15 - mod)
-                    break
-            if conflict:
-                continue
-            # Re-check against real calendar at the new candidate
-            refined = find_free_slot(cal_svc, day, duration_min=_DURATION_MIN,
-                                     start_hour=candidate.hour)
-            if refined and refined >= candidate:
-                candidate = refined
-            return candidate
-
-        return None
+        return find_free_slot(
+            cal_svc, day, duration_min=_DURATION_MIN, extra_busy=local_busy
+        )
