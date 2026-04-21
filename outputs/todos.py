@@ -119,7 +119,7 @@ def find_free_slot(
     day: datetime,
     duration_min: int = DEFAULT_DURATION_MIN,
     start_hour: int = 8,
-    end_hour: int = 20,
+    end_hour: int = 23,
     extra_busy: list[tuple[datetime, datetime]] | None = None,
 ) -> datetime | None:
     """
