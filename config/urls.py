@@ -18,10 +18,11 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
-from common.views import email_dashboard, email_detail, home, login_view, logout_view, rss_article, rss_audio, rss_dashboard, run_command, source_placeholder, telegram_dashboard, whatsapp_dashboard
+from common.views import email_dashboard, email_detail, home, home_stats_json, login_view, logout_view, rss_article, rss_audio, rss_dashboard, run_command, source_placeholder, telegram_dashboard, whatsapp_dashboard
 
 urlpatterns = [
     path("", home, name="home"),
+    path("api/home-stats/", home_stats_json, name="home_stats_json"),
     path("telegram/", telegram_dashboard, name="telegram"),
     path("whatsapp/", whatsapp_dashboard, name="whatsapp"),
     path("email/", email_dashboard, name="email"),

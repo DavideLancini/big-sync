@@ -59,40 +59,50 @@ def home(request):
     if not _is_authenticated(request):
         return redirect("login")
 
+    return render(request, "common/home.html", {
+        "gemini_studio_url": _GEMINI_STUDIO_URL,
+    })
+
+
+def home_stats_json(request):
+    if not _is_authenticated(request):
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+
     from common.google_billing import billing_summary
-
-    total_contacts = Contact.objects.count()
-    total_events = WriteLog.objects.filter(type=WriteLog.TYPE_EVENT).count()
-    total_tasks = WriteLog.objects.filter(type=WriteLog.TYPE_TASK).count()
-    total_contacts_written = WriteLog.objects.filter(type=WriteLog.TYPE_CONTACT).count()
-
-    recent_activity = WriteLog.objects.order_by("-created_at")[:10]
+    from sources.rss.models import RssArticle
 
     telegram_total = TelegramMessage.objects.count()
     telegram_pending = TelegramMessage.objects.filter(processed=False).count()
-    telegram_analyzed = telegram_total - telegram_pending
-
     whatsapp_total = WhatsAppMessage.objects.count()
     whatsapp_pending = WhatsAppMessage.objects.filter(processed=False).count()
-    whatsapp_analyzed = whatsapp_total - whatsapp_pending
+    rss_total = RssArticle.objects.count()
+    rss_unread = RssArticle.objects.filter(read=False).count()
 
-    ctx = {
-        "total_contacts": total_contacts,
-        "total_events": total_events,
-        "total_tasks": total_tasks,
-        "total_contacts_written": total_contacts_written,
-        "recent_activity": recent_activity,
+    recent = [
+        {
+            "type": e.type,
+            "title": e.title,
+            "created_at": e.created_at.strftime("%d/%m/%Y %H:%M"),
+        }
+        for e in WriteLog.objects.order_by("-created_at")[:10]
+    ]
+
+    return JsonResponse({
+        "total_contacts": Contact.objects.count(),
+        "total_events": WriteLog.objects.filter(type=WriteLog.TYPE_EVENT).count(),
+        "total_tasks": WriteLog.objects.filter(type=WriteLog.TYPE_TASK).count(),
+        "total_contacts_written": WriteLog.objects.filter(type=WriteLog.TYPE_CONTACT).count(),
         "telegram_total": telegram_total,
         "telegram_pending": telegram_pending,
-        "telegram_analyzed": telegram_analyzed,
+        "telegram_analyzed": telegram_total - telegram_pending,
         "whatsapp_total": whatsapp_total,
         "whatsapp_pending": whatsapp_pending,
-        "whatsapp_analyzed": whatsapp_analyzed,
+        "rss_total": rss_total,
+        "rss_unread": rss_unread,
+        "recent_activity": recent,
         "gemini_status": _gemini_status(),
-        "gemini_studio_url": _GEMINI_STUDIO_URL,
         "billing": billing_summary(),
-    }
-    return render(request, "common/home.html", ctx)
+    })
 
 
 def email_dashboard(request):

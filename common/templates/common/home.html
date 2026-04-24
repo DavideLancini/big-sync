@@ -68,15 +68,11 @@
       <h2>Gemini API</h2>
       <div class="grid">
         <div class="card">
-          <div class="val {% if gemini_status.ok %}green{% else %}amber{% endif %}" style="font-size:1rem;padding:0.25rem 0;">
-            {% if gemini_status.ok %}● Operativo{% else %}✕ Errore{% endif %}
-          </div>
-          <div class="label" style="margin-top:0.5rem;">
-            {% if gemini_status.ok %}{{ gemini_status.models }} modelli disponibili{% else %}{{ gemini_status.error }}{% endif %}
-          </div>
+          <div class="val" id="gemini-status" style="font-size:1rem;padding:0.25rem 0;color:#64748b;">…</div>
+          <div class="label" id="gemini-label" style="margin-top:0.5rem;">caricamento…</div>
         </div>
         <div class="card">
-          <div class="val accent">{{ telegram_analyzed }}</div>
+          <div class="val accent" id="telegram-analyzed">…</div>
           <div class="label">Chiamate stimate (msg analizzati)</div>
         </div>
         <div class="card" style="display:flex;align-items:center;">
@@ -91,47 +87,30 @@
 
     <section>
       <h2>Google Cloud Billing</h2>
-      {% if billing.error %}
-      <div class="card" style="border-color:#7c2d12;">
-        <div class="val amber" style="font-size:0.9rem;">✕ {{ billing.error }}</div>
-      </div>
-      {% elif billing.budgets %}
-      <div class="grid">
-        {% for b in billing.budgets %}
+      <div id="billing-grid" class="grid">
         <div class="card">
-          <div class="val green" style="font-size:1.4rem;">{{ b.current_spend }} {{ b.currency }}</div>
-          <div class="label">Spesa attuale</div>
-          {% if b.budget_amount %}
-          <div style="font-size:0.72rem;color:#64748b;margin-top:0.25rem;">budget: {{ b.budget_amount }} {{ b.currency }}</div>
-          {% endif %}
-          <div style="font-size:0.72rem;color:#94a3b8;margin-top:0.5rem;font-weight:600;">{{ b.display_name }}</div>
+          <div class="val" style="font-size:0.85rem;color:#64748b;">caricamento…</div>
         </div>
-        {% endfor %}
       </div>
-      {% else %}
-      <div class="card">
-        <div class="val" style="font-size:0.85rem;color:#64748b;">Nessun budget configurato.</div>
-      </div>
-      {% endif %}
     </section>
 
     <section>
       <h2>Output totale</h2>
       <div class="grid">
         <div class="card">
-          <div class="val">{{ total_contacts }}</div>
+          <div class="val" id="total-contacts">…</div>
           <div class="label">Contatti in rubrica</div>
         </div>
         <div class="card">
-          <div class="val accent">{{ total_events }}</div>
+          <div class="val accent" id="total-events">…</div>
           <div class="label">Eventi creati</div>
         </div>
         <div class="card">
-          <div class="val green">{{ total_tasks }}</div>
+          <div class="val green" id="total-tasks">…</div>
           <div class="label">Task creati</div>
         </div>
         <div class="card">
-          <div class="val amber">{{ total_contacts_written }}</div>
+          <div class="val amber" id="total-contacts-written">…</div>
           <div class="label">Contatti scritti</div>
         </div>
       </div>
@@ -148,7 +127,7 @@
             </div>
             <div class="source-info">
               <div class="source-name">Telegram</div>
-              <div class="source-stat live">{{ telegram_total }} msg · {{ telegram_pending }} pending</div>
+              <div class="source-stat live" id="telegram-stat">…</div>
             </div>
           </div>
         </a>
@@ -170,7 +149,7 @@
             <div class="source-icon on"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg></div>
             <div class="source-info">
               <div class="source-name">WhatsApp</div>
-              <div class="source-stat live">{{ whatsapp_total }} msg · {{ whatsapp_pending }} pending</div>
+              <div class="source-stat live" id="whatsapp-stat">…</div>
             </div>
           </div>
         </a>
@@ -202,32 +181,99 @@
           <div class="source-icon off"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>
           <div class="source-info"><div class="source-name" style="color:#4b5563;">Home Assistant</div><div class="source-stat">coming soon</div></div>
         </div>
-        <div class="source-card">
-          <div class="source-icon off"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1" fill="currentColor" stroke="none"/></svg></div>
-          <div class="source-info"><div class="source-name" style="color:#4b5563;">RSS</div><div class="source-stat">coming soon</div></div>
-        </div>
+        <a href="{% url 'rss' %}" style="text-decoration:none;">
+          <div class="source-card live">
+            <div class="source-icon on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1" fill="currentColor" stroke="none"/></svg></div>
+            <div class="source-info">
+              <div class="source-name">RSS</div>
+              <div class="source-stat live" id="rss-stat">…</div>
+            </div>
+          </div>
+        </a>
 
       </div>
     </section>
 
     <section>
       <h2>Attività recente</h2>
-      <div class="activity">
-        {% for entry in recent_activity %}
-        <div class="activity-row">
-          <div class="name">
-            {% if entry.type == 'contact' %}<span class="tag tag-contact">CONTACT</span>
-            {% elif entry.type == 'event' %}<span class="tag tag-event">EVENT</span>
-            {% elif entry.type == 'task' %}<span class="tag tag-task">TASK</span>{% endif %}
-            {{ entry.title }}
-          </div>
-          <div class="meta">{{ entry.created_at|date:"d/m/Y H:i" }}</div>
-        </div>
-        {% empty %}
-        <span class="none">Nessuna attività ancora.</span>
-        {% endfor %}
+      <div class="activity" id="recent-activity">
+        <span class="none">caricamento…</span>
       </div>
     </section>
   </main>
+
+  <script>
+    const TAG_HTML = {
+      contact: '<span class="tag tag-contact">CONTACT</span>',
+      event:   '<span class="tag tag-event">EVENT</span>',
+      task:    '<span class="tag tag-task">TASK</span>',
+    };
+    const esc = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+    function renderBilling(billing) {
+      const root = document.getElementById('billing-grid');
+      if (billing.error) {
+        root.innerHTML = `<div class="card" style="border-color:#7c2d12;"><div class="val amber" style="font-size:0.9rem;">✕ ${esc(billing.error)}</div></div>`;
+        return;
+      }
+      if (!billing.budgets || !billing.budgets.length) {
+        root.innerHTML = `<div class="card"><div class="val" style="font-size:0.85rem;color:#64748b;">Nessun budget configurato.</div></div>`;
+        return;
+      }
+      root.innerHTML = billing.budgets.map(b => `
+        <div class="card">
+          <div class="val green" style="font-size:1.4rem;">${esc(b.current_spend)} ${esc(b.currency)}</div>
+          <div class="label">Spesa attuale</div>
+          ${b.budget_amount ? `<div style="font-size:0.72rem;color:#64748b;margin-top:0.25rem;">budget: ${esc(b.budget_amount)} ${esc(b.currency)}</div>` : ''}
+          <div style="font-size:0.72rem;color:#94a3b8;margin-top:0.5rem;font-weight:600;">${esc(b.display_name)}</div>
+        </div>
+      `).join('');
+    }
+
+    function renderActivity(entries) {
+      const root = document.getElementById('recent-activity');
+      if (!entries.length) {
+        root.innerHTML = '<span class="none">Nessuna attività ancora.</span>';
+        return;
+      }
+      root.innerHTML = entries.map(e => `
+        <div class="activity-row">
+          <div class="name">${TAG_HTML[e.type] || ''}${esc(e.title)}</div>
+          <div class="meta">${esc(e.created_at)}</div>
+        </div>
+      `).join('');
+    }
+
+    fetch('{% url "home_stats_json" %}', {credentials: 'same-origin'})
+      .then(r => r.json())
+      .then(d => {
+        const g = d.gemini_status || {};
+        const gs = document.getElementById('gemini-status');
+        const gl = document.getElementById('gemini-label');
+        if (g.ok) {
+          gs.textContent = '● Operativo';
+          gs.style.color = '#22c55e';
+          gl.textContent = `${g.models} modelli disponibili`;
+        } else {
+          gs.textContent = '✕ Errore';
+          gs.style.color = '#f59e0b';
+          gl.textContent = g.error || '';
+        }
+        document.getElementById('telegram-analyzed').textContent = d.telegram_analyzed;
+        document.getElementById('total-contacts').textContent = d.total_contacts;
+        document.getElementById('total-events').textContent = d.total_events;
+        document.getElementById('total-tasks').textContent = d.total_tasks;
+        document.getElementById('total-contacts-written').textContent = d.total_contacts_written;
+        document.getElementById('telegram-stat').textContent = `${d.telegram_total} msg · ${d.telegram_pending} pending`;
+        document.getElementById('whatsapp-stat').textContent = `${d.whatsapp_total} msg · ${d.whatsapp_pending} pending`;
+        document.getElementById('rss-stat').textContent = `${d.rss_total} articoli · ${d.rss_unread} da leggere`;
+        renderBilling(d.billing || {});
+        renderActivity(d.recent_activity || []);
+      })
+      .catch(err => {
+        document.getElementById('gemini-status').textContent = '✕ Errore';
+        document.getElementById('gemini-label').textContent = String(err);
+      });
+  </script>
 </body>
 </html>
