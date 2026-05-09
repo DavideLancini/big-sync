@@ -24,6 +24,13 @@
     </div>
   </a>
 
+  <a href="{% url 'plaud' %}" style="text-decoration:none;">
+    <div class="nav-item {% if active == 'plaud' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+      <div class="tooltip">Plaud</div>
+    </div>
+  </a>
+
   <a href="{% url 'email' %}" style="text-decoration:none;">
     <div class="nav-item {% if active == 'email' %}active{% endif %}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>

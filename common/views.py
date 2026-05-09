@@ -70,6 +70,7 @@ def home_stats_json(request):
 
     from common.google_billing import billing_summary
     from sources.rss.models import RssArticle
+    from sources.plaud.models import PlaudRecording
 
     telegram_total = TelegramMessage.objects.count()
     telegram_pending = TelegramMessage.objects.filter(processed=False).count()
@@ -77,6 +78,8 @@ def home_stats_json(request):
     whatsapp_pending = WhatsAppMessage.objects.filter(processed=False).count()
     rss_total = RssArticle.objects.count()
     rss_unread = RssArticle.objects.filter(read=False).count()
+    plaud_total = PlaudRecording.objects.count()
+    plaud_pending = PlaudRecording.objects.filter(processed=False).count()
 
     recent = [
         {
@@ -99,6 +102,8 @@ def home_stats_json(request):
         "whatsapp_pending": whatsapp_pending,
         "rss_total": rss_total,
         "rss_unread": rss_unread,
+        "plaud_total": plaud_total,
+        "plaud_pending": plaud_pending,
         "recent_activity": recent,
         "gemini_status": _gemini_status(),
         "billing": billing_summary(),
@@ -301,6 +306,47 @@ def whatsapp_dashboard(request):
     return render(request, "common/whatsapp.html", ctx)
 
 
+def plaud_dashboard(request):
+    if not _is_authenticated(request):
+        return redirect("login")
+
+    from sources.plaud.models import PlaudRecording
+
+    total = PlaudRecording.objects.count()
+    processed = PlaudRecording.objects.filter(processed=True).count()
+    recordings = PlaudRecording.objects.order_by("-created_at")[:50]
+    return render(request, "common/plaud.html", {
+        "total": total,
+        "processed": processed,
+        "pending": total - processed,
+        "recordings": recordings,
+    })
+
+
+@csrf_exempt
+def plaud_upload(request):
+    if not _is_authenticated(request):
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+    if request.method != "POST":
+        return JsonResponse({"error": "POST only"}, status=405)
+
+    from sources.plaud.models import PlaudRecording
+
+    files = request.FILES.getlist("file")
+    if not files:
+        return JsonResponse({"error": "No file"}, status=400)
+
+    created = []
+    for f in files:
+        rec = PlaudRecording.objects.create(
+            file=f,
+            original_name=f.name,
+            size_bytes=f.size,
+        )
+        created.append({"id": rec.pk, "name": rec.original_name})
+    return JsonResponse({"created": created})
+
+
 def telegram_dashboard(request):
     if not _is_authenticated(request):
         return redirect("login")
@@ -350,6 +396,8 @@ def run_command(request, action):
         "gmail_analyze": manage + ["gmail_analyze"],
         "wa_analyze": manage + ["whatsapp_analyze_history", "--one-chat"],
         "wa_analyze_all": manage + ["whatsapp_analyze_history"],
+        "plaud_sync": manage + ["plaud_sync"],
+        "plaud_process": manage + ["plaud_process_pending"],
     }
 
     if action.startswith("rss_audio:"):

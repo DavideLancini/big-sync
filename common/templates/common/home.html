@@ -153,6 +153,15 @@
             </div>
           </div>
         </a>
+        <a href="{% url 'plaud' %}" style="text-decoration:none;">
+          <div class="source-card live">
+            <div class="source-icon on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></div>
+            <div class="source-info">
+              <div class="source-name">Plaud</div>
+              <div class="source-stat live" id="plaud-stat">…</div>
+            </div>
+          </div>
+        </a>
         <div class="source-card">
           <div class="source-icon off"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></div>
           <div class="source-info"><div class="source-name" style="color:#4b5563;">Email</div><div class="source-stat">coming soon</div></div>
@@ -267,6 +276,7 @@
         document.getElementById('telegram-stat').textContent = `${d.telegram_total} msg · ${d.telegram_pending} pending`;
         document.getElementById('whatsapp-stat').textContent = `${d.whatsapp_total} msg · ${d.whatsapp_pending} pending`;
         document.getElementById('rss-stat').textContent = `${d.rss_total} articoli · ${d.rss_unread} da leggere`;
+        document.getElementById('plaud-stat').textContent = `${d.plaud_total} audio · ${d.plaud_pending} pending`;
         renderBilling(d.billing || {});
         renderActivity(d.recent_activity || []);
       })

@@ -28,6 +28,7 @@ INSTALLED_APPS = [
     "sources.drive",
     "sources.home_assistant",
     "sources.rss",
+    "sources.plaud",
 ]
 
 MIDDLEWARE = [

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>big-sync · Plaud</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; display: flex; }
+    .sidebar { width: 56px; min-height: 100vh; background: #13151f; border-right: 1px solid #1e2030; display: flex; flex-direction: column; align-items: center; padding: 1rem 0; gap: 0.25rem; flex-shrink: 0; }
+    .sidebar .logo { font-size: 1.1rem; font-weight: 800; color: #6366f1; margin-bottom: 1rem; letter-spacing: -0.05em; }
+    .nav-item { position: relative; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 10px; cursor: default; transition: background 0.15s; }
+    .nav-item.active { background: #1e2030; color: #6366f1; }
+    .nav-item:not(.active) { color: #2d3148; }
+    .nav-item svg { width: 20px; height: 20px; }
+    .nav-item .tooltip { position: absolute; left: 52px; background: #1e2030; color: #e2e8f0; font-size: 0.7rem; font-weight: 500; padding: 0.3rem 0.6rem; border-radius: 6px; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.15s; border: 1px solid #2d3148; z-index: 10; }
+    .nav-item:hover .tooltip { opacity: 1; }
+    .nav-item.active .tooltip { color: #6366f1; }
+    .sidebar-divider { width: 24px; height: 1px; background: #1e2030; margin: 0.25rem 0; }
+    .sidebar-spacer { flex: 1; }
+    main { flex: 1; padding: 2rem; overflow-y: auto; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem; }
+    h1 { font-size: 1.5rem; font-weight: 700; color: #fff; letter-spacing: -0.02em; }
+    h1 span { color: #6366f1; }
+    section { margin-bottom: 2rem; }
+    h2 { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; margin-bottom: 0.75rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1rem; }
+    .card { background: #1e2030; border: 1px solid #2d3148; border-radius: 10px; padding: 1.25rem; }
+    .card .val { font-size: 2rem; font-weight: 700; color: #fff; line-height: 1; }
+    .card .val.accent { color: #6366f1; }
+    .card .val.amber { color: #f59e0b; }
+    .card .label { font-size: 0.75rem; color: #64748b; margin-top: 0.4rem; }
+    .drop { border: 2px dashed #2d3148; border-radius: 10px; padding: 2rem; text-align: center; color: #64748b; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+    .drop:hover, .drop.drag { border-color: #6366f1; background: #1a1d2e; color: #e2e8f0; }
+    .drop input { display: none; }
+    .drop-hint { font-size: 0.85rem; }
+    .drop-sub { font-size: 0.7rem; color: #475569; margin-top: 0.25rem; }
+    .row { background: #1e2030; border: 1px solid #2d3148; border-radius: 8px; padding: 0.75rem 1rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+    .row .name { font-size: 0.875rem; font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .row .meta { font-size: 0.7rem; color: #64748b; flex-shrink: 0; text-align: right; }
+    .row .transcript { font-size: 0.72rem; color: #94a3b8; margin-top: 0.4rem; line-height: 1.4; max-height: 4em; overflow: hidden; }
+    .row.col { flex-direction: column; align-items: stretch; }
+    .row-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+    .badge { font-size: 0.62rem; font-weight: 600; text-transform: uppercase; padding: 0.15rem 0.4rem; border-radius: 4px; }
+    .badge.ok { background: #1a3a2a; color: #4ade80; }
+    .badge.pend { background: #2d2a1a; color: #fbbf24; }
+    .badge.err { background: #3a1a1a; color: #f87171; }
+    .actions { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 1rem; }
+    button { border: none; cursor: pointer; border-radius: 8px; padding: 0.6rem 1.2rem; font-size: 0.875rem; font-weight: 600; transition: opacity 0.15s; }
+    button:hover { opacity: 0.85; }
+    .btn-primary { background: #6366f1; color: #fff; }
+    .btn-secondary { background: #1e2030; color: #e2e8f0; border: 1px solid #2d3148; }
+    .log-wrap { display: none; margin-top: 1rem; border: 1px solid #2d3148; border-radius: 8px; overflow: hidden; }
+    .log-header { background: #1e2030; padding: 0.4rem 0.75rem; font-size: 0.7rem; color: #64748b; display: flex; justify-content: space-between; }
+    #log { background: #0a0c14; color: #4ade80; font-family: monospace; font-size: 0.72rem; padding: 0.75rem; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+    .none { color: #374151; font-style: italic; font-size: 0.875rem; }
+  </style>
+</head>
+<body>
+  {% with active="plaud" %}{% include "common/_sidebar.html" %}{% endwith %}
+
+  <main>
+    <div class="topbar">
+      <h1>big<span>-sync</span> · Plaud</h1>
+    </div>
+
+    <section>
+      <h2>Statistiche</h2>
+      <div class="grid">
+        <div class="card"><div class="val">{{ total }}</div><div class="label">Registrazioni</div></div>
+        <div class="card"><div class="val accent">{{ processed }}</div><div class="label">Analizzate</div></div>
+        <div class="card"><div class="val amber">{{ pending }}</div><div class="label">Da analizzare</div></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Sync</h2>
+      <p style="font-size:0.8rem;color:#94a3b8;line-height:1.5;margin-bottom:0.75rem;">
+        Cron polla cloud Plaud ogni 10 min, scarica nuove registrazioni e le analizza.
+        Token JWT in <code>PLAUD_TOKEN</code> (.env), valido ~10 mesi.
+      </p>
+      <div class="actions">
+        <button class="btn-primary" onclick="run('plaud_sync')">Sync ora da cloud Plaud</button>
+        <button class="btn-secondary" onclick="run('plaud_process')">Analizza pending</button>
+      </div>
+      <div class="log-wrap" id="log-wrap">
+        <div class="log-header"><span id="log-title">—</span><span id="log-status">in corso...</span></div>
+        <pre id="log"></pre>
+      </div>
+    </section>
+
+    <section>
+      <h2>Upload manuale (fallback)</h2>
+      <label class="drop" id="drop">
+        <input type="file" id="file-input" multiple accept="audio/*,.mp3,.wav,.m4a,.ogg,.opus,.flac">
+        <div class="drop-hint" id="drop-hint">Trascina qui un file audio (USB → cartella NOTES/CALLS)</div>
+        <div class="drop-sub">MP3 / WAV / M4A — solo per troubleshooting o file off-Plaud</div>
+      </label>
+    </section>
+
+    <section>
+      <h2>Registrazioni recenti</h2>
+      <div style="display:flex;flex-direction:column;gap:0.5rem;">
+        {% for r in recordings %}
+        <div class="row col">
+          <div class="row-head">
+            <div class="name">{{ r.original_name|default:r.file.name }}</div>
+            <div class="meta">
+              {% if r.processed %}<span class="badge ok">analizzato</span>
+              {% elif r.error %}<span class="badge err">errore</span>
+              {% else %}<span class="badge pend">pending</span>{% endif %}
+              · {{ r.created_at|date:"d/m/Y H:i" }}
+            </div>
+          </div>
+          {% if r.transcription %}<div class="transcript">{{ r.transcription|truncatechars:280 }}</div>{% endif %}
+          {% if r.error %}<div class="transcript" style="color:#f87171;">{{ r.error }}</div>{% endif %}
+        </div>
+        {% empty %}
+        <span class="none">Nessuna registrazione ancora.</span>
+        {% endfor %}
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const drop = document.getElementById('drop');
+    const fileInput = document.getElementById('file-input');
+    const hint = document.getElementById('drop-hint');
+
+    function getCookie(n) {
+      const m = document.cookie.match('(^|;)\\s*' + n + '\\s*=\\s*([^;]+)');
+      return m ? decodeURIComponent(m.pop()) : '';
+    }
+
+    ['dragover','dragenter'].forEach(e => drop.addEventListener(e, ev => {
+      ev.preventDefault(); drop.classList.add('drag');
+    }));
+    ['dragleave','drop'].forEach(e => drop.addEventListener(e, ev => {
+      ev.preventDefault(); drop.classList.remove('drag');
+    }));
+    drop.addEventListener('drop', ev => upload(ev.dataTransfer.files));
+    fileInput.addEventListener('change', () => upload(fileInput.files));
+
+    async function upload(files) {
+      if (!files.length) return;
+      hint.textContent = `Upload di ${files.length} file...`;
+      const fd = new FormData();
+      for (const f of files) fd.append('file', f);
+      try {
+        const r = await fetch('{% url "plaud_upload" %}', {
+          method: 'POST', body: fd, credentials: 'same-origin',
+          headers: {'X-CSRFToken': getCookie('csrftoken')},
+        });
+        const j = await r.json();
+        if (j.error) { hint.textContent = '✕ ' + j.error; return; }
+        hint.textContent = `✓ ${j.created.length} caricati. Avvio analisi...`;
+        run('plaud_process');
+      } catch (e) {
+        hint.textContent = '✕ ' + e;
+      }
+    }
+
+    let activeEs = null;
+    function run(action) {
+      if (activeEs) { activeEs.close(); }
+      const wrap = document.getElementById('log-wrap');
+      const logEl = document.getElementById('log');
+      const titleEl = document.getElementById('log-title');
+      const statusEl = document.getElementById('log-status');
+      wrap.style.display = 'block';
+      logEl.textContent = '';
+      titleEl.textContent = action;
+      statusEl.textContent = 'in corso...';
+      statusEl.style.color = '#f59e0b';
+      const es = new EventSource('/run/' + action + '/');
+      activeEs = es;
+      es.onmessage = (e) => { logEl.textContent += e.data + '\n'; logEl.scrollTop = logEl.scrollHeight; };
+      es.addEventListener('done', () => {
+        es.close(); activeEs = null;
+        statusEl.textContent = 'completato'; statusEl.style.color = '#4ade80';
+        setTimeout(() => location.reload(), 2000);
+      });
+      es.onerror = () => { es.close(); activeEs = null; statusEl.textContent = 'errore'; statusEl.style.color = '#f87171'; };
+    }
+  </script>
+</body>
+</html>
