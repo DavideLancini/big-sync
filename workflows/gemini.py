@@ -85,7 +85,7 @@ def transcribe_audio(file_path: str, model: str = "gemini-2.5-flash", retries: i
                         "Trascrivi questo messaggio vocale parola per parola. Rispondi solo con la trascrizione, nessun altro testo.",
                     ],
                 )
-                text = response.text.strip()
+                text = (response.text or "").strip()
                 if return_usage:
                     usage = getattr(response, "usage_metadata", None)
                     return text, {
