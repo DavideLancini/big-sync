@@ -29,10 +29,14 @@ class Command(BaseCommand):
         items = list(qs)
         self.stdout.write(f"Transcribing {len(items)} recordings...")
 
+        total_in = total_out = total_tot = 0
         for rec in items:
             self.stdout.write(f"[{rec.pk}] {rec.original_name or rec.file.name}")
             try:
-                text = transcribe_audio(rec.file.path)
+                text, usage = transcribe_audio(rec.file.path, return_usage=True)
+                total_in += usage["prompt"]
+                total_out += usage["output"]
+                total_tot += usage["total"]
                 rec.transcription = text or ""
                 if not text:
                     rec.error = "empty transcription"
@@ -42,9 +46,16 @@ class Command(BaseCommand):
                 rec.processed = True
                 rec.error = ""
                 rec.save(update_fields=["transcription", "processed", "error"])
-                self.stdout.write(f"  → transcribed ({len(text)} chars)")
+                self.stdout.write(
+                    f"  → transcribed ({len(text)} chars · tokens in:{usage['prompt']} "
+                    f"out:{usage['output']} tot:{usage['total']})"
+                )
             except Exception as e:
                 rec.error = str(e)[:500]
                 rec.save(update_fields=["error"])
                 self.stderr.write(f"  → ERROR: {e}")
                 logger.exception("Plaud transcription failed for pk=%s", rec.pk)
+
+        self.stdout.write(
+            f"--- totale tokens: in={total_in} out={total_out} tot={total_tot} ---"
+        )

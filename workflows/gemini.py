@@ -56,7 +56,8 @@ def _audio_mime_type(path: str) -> str:
     }.get(ext, "audio/ogg")
 
 
-def transcribe_audio(file_path: str, model: str = "gemini-2.5-flash", retries: int = 4) -> str:
+def transcribe_audio(file_path: str, model: str = "gemini-2.5-flash", retries: int = 4,
+                     return_usage: bool = False):
     """
     Transcribe an audio/voice file using Gemini File API.
     Waits for the upload to reach ACTIVE state before calling generate_content,
@@ -84,7 +85,15 @@ def transcribe_audio(file_path: str, model: str = "gemini-2.5-flash", retries: i
                         "Trascrivi questo messaggio vocale parola per parola. Rispondi solo con la trascrizione, nessun altro testo.",
                     ],
                 )
-                return response.text.strip()
+                text = response.text.strip()
+                if return_usage:
+                    usage = getattr(response, "usage_metadata", None)
+                    return text, {
+                        "prompt": getattr(usage, "prompt_token_count", 0) or 0,
+                        "output": getattr(usage, "candidates_token_count", 0) or 0,
+                        "total": getattr(usage, "total_token_count", 0) or 0,
+                    }
+                return text
             except Exception as e:
                 last_exc = e
                 status = getattr(e, "status_code", None) or getattr(e, "code", None)
