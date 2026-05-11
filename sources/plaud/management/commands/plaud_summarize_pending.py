@@ -1,16 +1,17 @@
-"""Generate title + summary for transcribed Plaud recordings."""
+"""Generate title + summary + extract entities for transcribed Plaud recordings."""
 import logging
 
 from django.core.management.base import BaseCommand
 
 from sources.plaud.models import PlaudRecording
 from workflows.gemini import summarize_transcription
+from workflows.workflow_telegram import process_realtime_message
 
 logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Summarize transcribed Plaud recordings (title + markdown summary)"
+    help = "Summarize transcribed Plaud recordings (title + markdown summary) and extract contacts/events/todos"
 
     def add_arguments(self, parser):
         parser.add_argument("--id", type=int)
@@ -40,6 +41,20 @@ class Command(BaseCommand):
                 rec.save(update_fields=["title", "summary", "summarized", "error"])
                 self.stdout.write(f"  → title: {title[:80]}")
                 self.stdout.write(f"  → summary: {len(summary)} chars")
+
+                ts = rec.recorded_at or rec.created_at
+                new_msg = {
+                    "time": ts.strftime("%H:%M"),
+                    "date": ts.strftime("%Y-%m-%d"),
+                    "sender": "Davide",
+                    "text": rec.transcription,
+                    "media_type": "voice",
+                }
+                counts = process_realtime_message("Plaud · Voice Notes", new_msg, [])
+                self.stdout.write(
+                    f"  → extracted: contacts:{counts['contacts']} "
+                    f"events:{counts['events']} todos:{counts['todos']}"
+                )
             except Exception as e:
                 rec.error = str(e)[:500]
                 rec.save(update_fields=["error"])

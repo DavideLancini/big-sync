@@ -1,32 +1,35 @@
-"""Transcribe + analyze pending Plaud recordings via Gemini."""
+"""Transcribe pending Plaud recordings via Gemini File API."""
 import logging
 
 from django.core.management.base import BaseCommand
 
 from sources.plaud.models import PlaudRecording
 from workflows.gemini import transcribe_audio
-from workflows.workflow_telegram import process_realtime_message
 
 logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Transcribe and analyze pending Plaud recordings"
+    help = "Transcribe pending Plaud recordings"
 
     def add_arguments(self, parser):
         parser.add_argument("--id", type=int, help="Process a specific recording id")
         parser.add_argument("--limit", type=int, default=20)
+        parser.add_argument("--force", action="store_true",
+                            help="Re-transcribe even if processed=True")
 
     def handle(self, *args, **opts):
-        qs = PlaudRecording.objects.filter(processed=False).order_by("created_at")
+        qs = PlaudRecording.objects.all().order_by("created_at")
+        if not opts["force"]:
+            qs = qs.filter(processed=False)
         if opts["id"]:
             qs = qs.filter(pk=opts["id"])
         qs = qs[: opts["limit"]]
 
-        n = qs.count() if hasattr(qs, "count") else len(list(qs))
-        self.stdout.write(f"Processing {n} pending recordings...")
+        items = list(qs)
+        self.stdout.write(f"Transcribing {len(items)} recordings...")
 
-        for rec in qs:
+        for rec in items:
             self.stdout.write(f"[{rec.pk}] {rec.original_name or rec.file.name}")
             try:
                 text = transcribe_audio(rec.file.path)
@@ -34,28 +37,14 @@ class Command(BaseCommand):
                 if not text:
                     rec.error = "empty transcription"
                     rec.save(update_fields=["transcription", "error"])
-                    self.stderr.write("  → empty transcription, skipping")
+                    self.stderr.write("  → empty transcription")
                     continue
-                self.stdout.write(f"  → transcribed ({len(text)} chars)")
-
-                ts = rec.recorded_at or rec.created_at
-                new_msg = {
-                    "time": ts.strftime("%H:%M"),
-                    "date": ts.strftime("%Y-%m-%d"),
-                    "sender": "Davide",
-                    "text": text,
-                    "media_type": "voice",
-                }
-                counts = process_realtime_message("Plaud · Voice Notes", new_msg, [])
-                self.stdout.write(
-                    f"  → analyzed: contacts:{counts['contacts']} "
-                    f"events:{counts['events']} todos:{counts['todos']}"
-                )
                 rec.processed = True
                 rec.error = ""
                 rec.save(update_fields=["transcription", "processed", "error"])
+                self.stdout.write(f"  → transcribed ({len(text)} chars)")
             except Exception as e:
                 rec.error = str(e)[:500]
                 rec.save(update_fields=["error"])
                 self.stderr.write(f"  → ERROR: {e}")
-                logger.exception("Plaud processing failed for pk=%s", rec.pk)
+                logger.exception("Plaud transcription failed for pk=%s", rec.pk)
