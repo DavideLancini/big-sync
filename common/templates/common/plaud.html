@@ -30,12 +30,7 @@
     .card .val.accent { color: #6366f1; }
     .card .val.amber { color: #f59e0b; }
     .card .label { font-size: 0.75rem; color: #64748b; margin-top: 0.4rem; }
-    .drop { border: 2px dashed #2d3148; border-radius: 10px; padding: 2rem; text-align: center; color: #64748b; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
-    .drop:hover, .drop.drag { border-color: #6366f1; background: #1a1d2e; color: #e2e8f0; }
-    .drop input { display: none; }
-    .drop-hint { font-size: 0.85rem; }
-    .drop-sub { font-size: 0.7rem; color: #475569; margin-top: 0.25rem; }
-    .row { background: #1e2030; border: 1px solid #2d3148; border-radius: 8px; padding: 0.75rem 1rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+.row { background: #1e2030; border: 1px solid #2d3148; border-radius: 8px; padding: 0.75rem 1rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
     .row .name { font-size: 0.875rem; font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .row .meta { font-size: 0.7rem; color: #64748b; flex-shrink: 0; text-align: right; }
     .row .transcript { font-size: 0.72rem; color: #94a3b8; margin-top: 0.4rem; line-height: 1.4; max-height: 4em; overflow: hidden; }
@@ -91,11 +86,14 @@
 
     <section>
       <h2>Upload manuale (fallback)</h2>
-      <label class="drop" id="drop">
-        <input type="file" id="file-input" multiple accept="audio/*,.mp3,.wav,.m4a,.ogg,.opus,.flac">
-        <div class="drop-hint" id="drop-hint">Trascina qui un file audio (USB → cartella NOTES/CALLS)</div>
-        <div class="drop-sub">MP3 / WAV / M4A — solo per troubleshooting o file off-Plaud</div>
-      </label>
+      <div class="actions">
+        <button class="btn-secondary" onclick="document.getElementById('file-input').click()">Carica file audio</button>
+        <span id="upload-status" style="font-size:0.75rem;color:#64748b;align-self:center;"></span>
+      </div>
+      <input type="file" id="file-input" multiple accept="audio/*,.mp3,.wav,.m4a,.ogg,.opus,.flac" style="display:none;">
+      <p style="font-size:0.72rem;color:#64748b;margin-top:0.5rem;">
+        MP3 / WAV / M4A — solo per troubleshooting o file off-Plaud.
+      </p>
     </section>
 
     <section>
@@ -123,22 +121,14 @@
   </main>
 
   <script>
-    const drop = document.getElementById('drop');
     const fileInput = document.getElementById('file-input');
-    const hint = document.getElementById('drop-hint');
+    const hint = document.getElementById('upload-status');
 
     function getCookie(n) {
       const m = document.cookie.match('(^|;)\\s*' + n + '\\s*=\\s*([^;]+)');
       return m ? decodeURIComponent(m.pop()) : '';
     }
 
-    ['dragover','dragenter'].forEach(e => drop.addEventListener(e, ev => {
-      ev.preventDefault(); drop.classList.add('drag');
-    }));
-    ['dragleave','drop'].forEach(e => drop.addEventListener(e, ev => {
-      ev.preventDefault(); drop.classList.remove('drag');
-    }));
-    drop.addEventListener('drop', ev => upload(ev.dataTransfer.files));
     fileInput.addEventListener('change', () => upload(fileInput.files));
 
     async function upload(files) {
