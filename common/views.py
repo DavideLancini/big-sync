@@ -398,6 +398,7 @@ def run_command(request, action):
         "wa_analyze_all": manage + ["whatsapp_analyze_history"],
         "plaud_sync": manage + ["plaud_sync"],
         "plaud_process": manage + ["plaud_process_pending"],
+        "plaud_summarize": manage + ["plaud_summarize_pending"],
     }
 
     if action.startswith("rss_audio:"):

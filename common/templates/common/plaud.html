@@ -69,31 +69,24 @@
     </section>
 
     <section>
-      <h2>Sync</h2>
-      <p style="font-size:0.8rem;color:#94a3b8;line-height:1.5;margin-bottom:0.75rem;">
-        Cron polla cloud Plaud ogni 10 min, scarica nuove registrazioni e le analizza.
-        Token JWT in <code>PLAUD_TOKEN</code> (.env), valido ~10 mesi.
-      </p>
+      <h2>Azioni</h2>
       <div class="actions">
-        <button class="btn-primary" onclick="run('plaud_sync')">Sync ora da cloud Plaud</button>
-        <button class="btn-secondary" onclick="run('plaud_process')">Analizza pending</button>
+        <button class="btn-primary" onclick="run('plaud_sync')">Sync</button>
+        <button class="btn-secondary" onclick="document.getElementById('file-input').click()">Carica</button>
+        <button class="btn-secondary" onclick="run('plaud_process')">Trascrivi</button>
+        <button class="btn-secondary" onclick="run('plaud_summarize')">Riassumi</button>
+        <span id="upload-status" style="font-size:0.75rem;color:#64748b;align-self:center;"></span>
       </div>
+      <input type="file" id="file-input" multiple accept="audio/*,.mp3,.wav,.m4a,.ogg,.opus,.flac" style="display:none;">
+      <p style="font-size:0.72rem;color:#64748b;margin-top:0.5rem;line-height:1.5;">
+        <strong>Sync</strong>: scarica nuove registrazioni dal cloud Plaud (cron ogni 10 min).
+        <strong>Trascrivi</strong>: Gemini estrae testo + contatti/eventi/todo dalle pending.
+        <strong>Riassumi</strong>: Gemini genera titolo + sommario markdown dalle trascrizioni.
+      </p>
       <div class="log-wrap" id="log-wrap">
         <div class="log-header"><span id="log-title">—</span><span id="log-status">in corso...</span></div>
         <pre id="log"></pre>
       </div>
-    </section>
-
-    <section>
-      <h2>Upload manuale (fallback)</h2>
-      <div class="actions">
-        <button class="btn-secondary" onclick="document.getElementById('file-input').click()">Carica file audio</button>
-        <span id="upload-status" style="font-size:0.75rem;color:#64748b;align-self:center;"></span>
-      </div>
-      <input type="file" id="file-input" multiple accept="audio/*,.mp3,.wav,.m4a,.ogg,.opus,.flac" style="display:none;">
-      <p style="font-size:0.72rem;color:#64748b;margin-top:0.5rem;">
-        MP3 / WAV / M4A — solo per troubleshooting o file off-Plaud.
-      </p>
     </section>
 
     <section>
@@ -102,15 +95,18 @@
         {% for r in recordings %}
         <div class="row col">
           <div class="row-head">
-            <div class="name">{{ r.original_name|default:r.file.name }}</div>
+            <div class="name">{{ r.title|default:r.original_name|default:r.file.name }}</div>
             <div class="meta">
-              {% if r.processed %}<span class="badge ok">analizzato</span>
-              {% elif r.error %}<span class="badge err">errore</span>
-              {% else %}<span class="badge pend">pending</span>{% endif %}
+              {% if r.processed %}<span class="badge ok">trascritto</span>
+              {% else %}<span class="badge pend">no trascr.</span>{% endif %}
+              {% if r.summarized %}<span class="badge ok">riassunto</span>
+              {% else %}<span class="badge pend">no riass.</span>{% endif %}
+              {% if r.error %}<span class="badge err">errore</span>{% endif %}
               · {{ r.created_at|date:"d/m/Y H:i" }}
             </div>
           </div>
-          {% if r.transcription %}<div class="transcript">{{ r.transcription|truncatechars:280 }}</div>{% endif %}
+          {% if r.summary %}<div class="transcript" style="color:#cbd5e1;">{{ r.summary|truncatechars:400 }}</div>{% endif %}
+          {% if r.transcription and not r.summary %}<div class="transcript">{{ r.transcription|truncatechars:280 }}</div>{% endif %}
           {% if r.error %}<div class="transcript" style="color:#f87171;">{{ r.error }}</div>{% endif %}
         </div>
         {% empty %}

@@ -104,6 +104,35 @@ def transcribe_audio(file_path: str, model: str = "gemini-2.5-flash", retries: i
                 pass
 
 
+def summarize_transcription(text: str, model: str = "gemini-2.5-flash") -> tuple[str, str]:
+    """
+    Given a transcription, produce (title, summary_markdown).
+    Title is one short Italian sentence (max 80 chars). Summary is markdown
+    with bullet points covering topics/decisions/action items.
+    """
+    prompt = f"""Sei un assistente che riassume registrazioni audio in italiano.
+Ricevi sotto la trascrizione integrale di un audio. Restituisci un JSON con due campi:
+
+- "title": un titolo descrittivo in italiano, max 80 caratteri, frase secca, no virgolette.
+- "summary": riassunto in markdown italiano con sezioni concise:
+  - "## Argomenti" elenco puntato dei temi principali
+  - "## Decisioni" se presenti
+  - "## Azioni / Todo" se presenti
+  - "## Persone citate" se presenti
+  Ogni bullet 1-2 righe. Salta sezioni vuote.
+
+Trascrizione:
+\"\"\"
+{text}
+\"\"\"
+
+Rispondi SOLO con il JSON, niente altro testo, niente markdown fences."""
+    data = ask(prompt, model=model)
+    title = (data.get("title") or "").strip()[:255]
+    summary = (data.get("summary") or "").strip()
+    return title, summary
+
+
 def extract_json(text: str) -> dict:
     """Extract JSON from Gemini response, handling markdown code blocks."""
     text = text.strip()
