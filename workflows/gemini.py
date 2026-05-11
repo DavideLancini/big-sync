@@ -20,9 +20,24 @@ def _get_client() -> genai.Client:
     if _client is None:
         _client = genai.Client(
             api_key=config("GEMINI_API_KEY"),
-            http_options=types.HttpOptions(timeout=60_000),  # 60s — applies to all requests
+            http_options=types.HttpOptions(timeout=180_000),  # 180s — accommodates File API uploads
         )
     return _client
+
+
+def _wait_for_active(client: genai.Client, name: str, timeout_s: int = 120) -> None:
+    """Poll the File API until the upload reaches ACTIVE state."""
+    import time
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        info = client.files.get(name=name)
+        state = getattr(info.state, "name", None) or str(info.state)
+        if state == "ACTIVE":
+            return
+        if state == "FAILED":
+            raise RuntimeError(f"Gemini File API marked upload as FAILED: {name}")
+        time.sleep(2)
+    raise TimeoutError(f"Gemini file {name} did not reach ACTIVE within {timeout_s}s")
 
 
 def _audio_mime_type(path: str) -> str:
@@ -41,12 +56,13 @@ def _audio_mime_type(path: str) -> str:
     }.get(ext, "audio/ogg")
 
 
-def transcribe_audio(file_path: str, model: str = "gemini-2.5-flash") -> str:
+def transcribe_audio(file_path: str, model: str = "gemini-2.5-flash", retries: int = 4) -> str:
     """
     Transcribe an audio/voice file using Gemini File API.
-    Returns the transcription text, or empty string on error.
-    Raises on API error (60s HTTP timeout set at client level).
+    Waits for the upload to reach ACTIVE state before calling generate_content,
+    and retries 5xx errors with exponential backoff.
     """
+    import time
     client = _get_client()
     mime_type = _audio_mime_type(file_path)
     uploaded = None
@@ -56,14 +72,30 @@ def transcribe_audio(file_path: str, model: str = "gemini-2.5-flash") -> str:
                 file=f,
                 config=types.UploadFileConfig(mime_type=mime_type),
             )
-        response = client.models.generate_content(
-            model=model,
-            contents=[
-                types.Part.from_uri(file_uri=uploaded.uri, mime_type=mime_type),
-                "Trascrivi questo messaggio vocale parola per parola. Rispondi solo con la trascrizione, nessun altro testo.",
-            ],
-        )
-        return response.text.strip()
+        _wait_for_active(client, uploaded.name)
+
+        last_exc = None
+        for attempt in range(retries):
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=[
+                        types.Part.from_uri(file_uri=uploaded.uri, mime_type=mime_type),
+                        "Trascrivi questo messaggio vocale parola per parola. Rispondi solo con la trascrizione, nessun altro testo.",
+                    ],
+                )
+                return response.text.strip()
+            except Exception as e:
+                last_exc = e
+                status = getattr(e, "status_code", None) or getattr(e, "code", None)
+                if status and int(status) >= 500 and attempt < retries - 1:
+                    wait = 5 * (2 ** attempt)
+                    logger.warning("Gemini transcribe %s on attempt %d, retrying in %ds",
+                                   status, attempt + 1, wait)
+                    time.sleep(wait)
+                else:
+                    raise
+        raise last_exc
     finally:
         if uploaded:
             try:
