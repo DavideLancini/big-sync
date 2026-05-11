@@ -118,27 +118,52 @@ def summarize_transcription(text: str, model: str = "gemini-2.5-flash") -> tuple
     Given a transcription, produce (title, summary_markdown).
     Title is one short Italian sentence (max 80 chars). Summary is markdown
     with bullet points covering topics/decisions/action items.
+
+    Uses a delimiter-based format (not JSON) because the summary contains
+    markdown newlines and quotes that break strict JSON parsing.
     """
     prompt = f"""Sei un assistente che riassume registrazioni audio in italiano.
-Ricevi sotto la trascrizione integrale di un audio. Restituisci un JSON con due campi:
-
-- "title": un titolo descrittivo in italiano, max 80 caratteri, frase secca, no virgolette.
-- "summary": riassunto in markdown italiano con sezioni concise:
-  - "## Argomenti" elenco puntato dei temi principali
-  - "## Decisioni" se presenti
-  - "## Azioni / Todo" se presenti
-  - "## Persone citate" se presenti
-  Ogni bullet 1-2 righe. Salta sezioni vuote.
-
 Trascrizione:
 \"\"\"
 {text}
 \"\"\"
 
-Rispondi SOLO con il JSON, niente altro testo, niente markdown fences."""
-    data = ask(prompt, model=model)
-    title = (data.get("title") or "").strip()[:255]
-    summary = (data.get("summary") or "").strip()
+Rispondi ESATTAMENTE in questo formato, senza altro testo prima o dopo:
+
+TITLE: <titolo descrittivo in italiano, max 80 caratteri, frase secca, no virgolette>
+---SUMMARY---
+<riassunto in markdown italiano con queste sezioni concise (salta quelle vuote):>
+## Argomenti
+- bullet 1-2 righe sui temi principali
+
+## Decisioni
+- bullet 1-2 righe se presenti
+
+## Azioni / Todo
+- bullet 1-2 righe se presenti
+
+## Persone citate
+- bullet 1-2 righe se presenti
+"""
+    raw = ask_text(prompt, model=model)
+    title = ""
+    summary = ""
+    if "---SUMMARY---" in raw:
+        head, summary = raw.split("---SUMMARY---", 1)
+        for line in head.splitlines():
+            line = line.strip()
+            if line.upper().startswith("TITLE:"):
+                title = line.split(":", 1)[1].strip()
+                break
+    else:
+        # Fallback: first line is title, rest is summary.
+        lines = raw.strip().splitlines()
+        if lines:
+            title = lines[0].lstrip("#").strip()
+            summary = "\n".join(lines[1:]).strip()
+
+    title = title.strip().strip('"').strip("'")[:255]
+    summary = summary.strip()
     return title, summary
 
 
