@@ -46,3 +46,4 @@ build/
 *.egg-info/
 tmp/
 .claude/
+CREDENTIALS.md
