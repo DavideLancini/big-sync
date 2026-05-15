@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>big-sync · Eventi & Todo</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; display: flex; }
+    .sidebar { width: 56px; min-height: 100vh; background: #13151f; border-right: 1px solid #1e2030; display: flex; flex-direction: column; align-items: center; padding: 1rem 0; gap: 0.25rem; flex-shrink: 0; }
+    .sidebar .logo { font-size: 1.1rem; font-weight: 800; color: #6366f1; margin-bottom: 1rem; letter-spacing: -0.05em; }
+    .nav-item { position: relative; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 10px; cursor: default; transition: background 0.15s; }
+    .nav-item.active { background: #1e2030; color: #6366f1; }
+    .nav-item:not(.active) { color: #2d3148; }
+    .nav-item svg { width: 20px; height: 20px; }
+    .nav-item .tooltip { position: absolute; left: 52px; background: #1e2030; color: #e2e8f0; font-size: 0.7rem; font-weight: 500; padding: 0.3rem 0.6rem; border-radius: 6px; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.15s; border: 1px solid #2d3148; z-index: 10; }
+    .nav-item:hover .tooltip { opacity: 1; }
+    .nav-item.active .tooltip { color: #6366f1; }
+    .sidebar-divider { width: 24px; height: 1px; background: #1e2030; margin: 0.25rem 0; }
+    .sidebar-spacer { flex: 1; }
+    main { flex: 1; padding: 2rem; overflow-y: auto; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; gap: 1rem; flex-wrap: wrap; }
+    h1 { font-size: 1.5rem; font-weight: 700; color: #fff; letter-spacing: -0.02em; }
+    h1 span { color: #6366f1; }
+    .filters { display: flex; gap: 0.5rem; align-items: center; font-size: 0.78rem; color: #94a3b8; }
+    .filters input { width: 50px; background: #1e2030; border: 1px solid #2d3148; color: #e2e8f0; padding: 0.25rem 0.4rem; border-radius: 5px; font-size: 0.78rem; }
+    section { margin-bottom: 2rem; }
+    h2 { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; margin-bottom: 0.75rem; }
+    table { width: 100%; border-collapse: collapse; background: #13151f; border: 1px solid #1e2030; border-radius: 10px; overflow: hidden; font-size: 0.78rem; }
+    th, td { text-align: left; padding: 0.55rem 0.85rem; border-bottom: 1px solid #1e2030; vertical-align: top; }
+    th { background: #1a1c28; color: #94a3b8; font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    tbody tr:last-child td { border-bottom: none; }
+    .when { white-space: nowrap; font-variant-numeric: tabular-nums; color: #cbd5e1; }
+    .cal-pill { display: inline-block; padding: 0.1rem 0.45rem; border-radius: 4px; font-size: 0.65rem; font-weight: 600; background: #1e2030; color: #94a3b8; }
+    .title-cell input { width: 100%; background: transparent; border: 1px solid transparent; color: #e2e8f0; padding: 0.2rem 0.3rem; border-radius: 4px; font: inherit; }
+    .title-cell input:focus { background: #0a0c14; border-color: #6366f1; outline: none; }
+    .actions-cell { white-space: nowrap; }
+    .btn { background: transparent; border: 1px solid #2d3148; color: #94a3b8; padding: 0.25rem 0.55rem; border-radius: 5px; font-size: 0.7rem; cursor: pointer; margin-left: 0.25rem; }
+    .btn:hover { color: #e2e8f0; border-color: #3a3f5c; }
+    .btn.danger:hover { color: #f87171; border-color: #7f1d1d; }
+    .btn.save { color: #4ade80; border-color: #14532d; }
+    .empty { color: #64748b; font-style: italic; padding: 1rem; text-align: center; }
+    .row.gone td { opacity: 0.4; text-decoration: line-through; }
+  </style>
+</head>
+<body>
+  {% with active="items" %}{% include "common/_sidebar.html" %}{% endwith %}
+
+  <main>
+    <div class="topbar">
+      <h1>big<span>-sync</span> · Eventi &amp; Todo</h1>
+      <form class="filters" method="get">
+        <span>Da:</span><input name="past" value="{{ past_days }}"><span>giorni fa</span>
+        <span>· a:</span><input name="future" value="{{ future_days }}"><span>giorni futuri</span>
+        <button class="btn" type="submit">Aggiorna</button>
+      </form>
+    </div>
+
+    <section>
+      <h2>Eventi ({{ events|length }})</h2>
+      <table>
+        <thead><tr><th>Quando</th><th>Calendario</th><th>Titolo</th><th>Luogo</th><th></th></tr></thead>
+        <tbody>
+          {% for e in events %}
+          <tr class="row" data-id="{{ e.google_id }}" data-cal="{{ e.calendar_id }}">
+            <td class="when">{{ e.start_at|date:"D d/m H:i" }}</td>
+            <td><span class="cal-pill">{{ e.calendar_name|default:"primary" }}</span></td>
+            <td class="title-cell"><input value="{{ e.title }}" data-orig="{{ e.title }}"></td>
+            <td>{{ e.location|default:"" }}</td>
+            <td class="actions-cell">
+              <button class="btn save" onclick="saveItem(this)">Salva</button>
+              <button class="btn danger" onclick="deleteItem(this)">Elimina</button>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5" class="empty">Nessun evento nella finestra selezionata.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Todo ({{ todos|length }})</h2>
+      <table>
+        <thead><tr><th>Quando</th><th>Calendario</th><th>Titolo</th><th></th><th></th></tr></thead>
+        <tbody>
+          {% for t in todos %}
+          <tr class="row" data-id="{{ t.google_id }}" data-cal="{{ t.calendar_id }}">
+            <td class="when">{{ t.start_at|date:"D d/m H:i" }}</td>
+            <td><span class="cal-pill">{{ t.calendar_name|default:"primary" }}</span></td>
+            <td class="title-cell"><input value="{{ t.title }}" data-orig="{{ t.title }}"></td>
+            <td></td>
+            <td class="actions-cell">
+              <button class="btn save" onclick="saveItem(this)">Salva</button>
+              <button class="btn danger" onclick="deleteItem(this)">Elimina</button>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5" class="empty">Nessun todo nella finestra selezionata.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <script>
+    async function postAction(googleId, calendarId, body) {
+      const r = await fetch(`/items/${encodeURIComponent(googleId)}/`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({...body, calendar_id: calendarId}),
+      });
+      const j = await r.json().catch(() => ({}));
+      return r.ok && j.ok;
+    }
+
+    async function deleteItem(btn) {
+      const tr = btn.closest('tr');
+      const id = tr.dataset.id;
+      const cal = tr.dataset.cal;
+      if (!confirm('Eliminare definitivamente?')) return;
+      btn.disabled = true;
+      const ok = await postAction(id, cal, {action: 'delete'});
+      if (ok) tr.classList.add('gone'); else { alert('Errore eliminazione'); btn.disabled = false; }
+    }
+
+    async function saveItem(btn) {
+      const tr = btn.closest('tr');
+      const id = tr.dataset.id;
+      const cal = tr.dataset.cal;
+      const input = tr.querySelector('.title-cell input');
+      const newTitle = input.value.trim();
+      const orig = input.dataset.orig;
+      if (newTitle === orig) return;
+      btn.disabled = true;
+      const ok = await postAction(id, cal, {action: 'update', title: newTitle});
+      if (ok) { input.dataset.orig = newTitle; btn.style.color = '#4ade80'; setTimeout(() => btn.style.color = '', 1500); }
+      else alert('Errore salvataggio');
+      btn.disabled = false;
+    }
+  </script>
+</body>
+</html>

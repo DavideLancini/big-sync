@@ -33,7 +33,26 @@ def _parse_start(date_str: str, time_str: str) -> datetime | None:
 
 
 def _find_existing(service, title: str, start: datetime) -> dict | None:
-    """Search for a todo event with same title on the same day."""
+    """Search for a todo event with same title on the same day.
+
+    Uses the local CachedEvent table first (faster, complete view); falls
+    back to a Google API search only on cache miss.
+    """
+    from common.models import CachedEvent
+
+    title_norm = _norm(title)
+    day = start.date()
+
+    cached = CachedEvent.objects.filter(
+        calendar_id=_CALENDAR_ID,
+        is_todo=True,
+        deleted_at__isnull=True,
+        start_at__date=day,
+    )
+    for c in cached:
+        if _norm(c.title) == title_norm:
+            return c.raw or {"id": c.google_id, "summary": c.title}
+
     try:
         day_start = start.replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = day_start + timedelta(days=1)
@@ -44,7 +63,6 @@ def _find_existing(service, title: str, start: datetime) -> dict | None:
             timeMax=day_end.isoformat() + "Z",
             singleEvents=True,
         ).execute()
-        title_norm = _norm(title)
         for ev in result.get("items", []):
             if _norm(ev.get("summary", "")) == title_norm:
                 return ev
@@ -68,6 +86,20 @@ def upsert_todo_event(data: dict, fallback_datetime: datetime | None = None) -> 
     if assigned not in ("me", "davide", "davide lancini", "@davidelenc"):
         logger.debug("Skipping todo assigned to %s: %s", assigned, title)
         return None
+
+    # AI quality filter: drop noise before it pollutes the calendar.
+    try:
+        from workflows.dedup import is_useful_todo
+        keep, reason = is_useful_todo(
+            title,
+            context_chat=data.get("source_chat", "") or "",
+            context_text=data.get("notes", "") or "",
+        )
+        if not keep:
+            logger.info("Dropping noisy todo %r: %s", title, reason)
+            return None
+    except Exception:
+        logger.exception("Todo quality filter failed for %r — keeping", title)
 
     start = _parse_start(data.get("start_date") or "", data.get("start_time") or "")
     if start is None:

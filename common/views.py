@@ -285,6 +285,90 @@ def source_placeholder(request, source):
     return render(request, "common/placeholder.html", {"source": source, "label": label})
 
 
+def items_dashboard(request):
+    if not _is_authenticated(request):
+        return redirect("login")
+
+    from datetime import timedelta
+    from django.utils import timezone
+    from common.models import CachedEvent
+
+    now = timezone.now()
+    past = request.GET.get("past", "7")
+    fut = request.GET.get("future", "30")
+    try:
+        past_days = max(0, int(past))
+    except ValueError:
+        past_days = 7
+    try:
+        future_days = max(1, int(fut))
+    except ValueError:
+        future_days = 30
+
+    qs = CachedEvent.objects.filter(
+        deleted_at__isnull=True,
+        start_at__gte=now - timedelta(days=past_days),
+        start_at__lte=now + timedelta(days=future_days),
+    ).order_by("start_at")
+
+    events = list(qs.filter(is_todo=False)[:300])
+    todos = list(qs.filter(is_todo=True)[:300])
+
+    ctx = {
+        "events": events,
+        "todos": todos,
+        "past_days": past_days,
+        "future_days": future_days,
+    }
+    return render(request, "common/items.html", ctx)
+
+
+@csrf_exempt
+def item_action(request, google_id):
+    """JSON endpoint: POST {action: "delete"|"update", calendar_id, ...}."""
+    if not _is_authenticated(request):
+        return JsonResponse({"error": "auth"}, status=401)
+    if request.method != "POST":
+        return JsonResponse({"error": "method"}, status=405)
+
+    import json
+    from common.models import CachedEvent
+    from outputs.calendar import delete_event, update_event
+
+    try:
+        payload = json.loads(request.body or b"{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "invalid json"}, status=400)
+
+    action = payload.get("action")
+    calendar_id = payload.get("calendar_id") or "primary"
+
+    cached = CachedEvent.objects.filter(
+        google_id=google_id, calendar_id=calendar_id, deleted_at__isnull=True,
+    ).first()
+    if not cached:
+        return JsonResponse({"error": "not found"}, status=404)
+
+    if action == "delete":
+        ok = delete_event(google_id, calendar_id)
+        return JsonResponse({"ok": ok})
+
+    if action == "update":
+        fields = {}
+        if "title" in payload:
+            fields["summary"] = payload["title"]
+        if "location" in payload:
+            fields["location"] = payload["location"]
+        if "description" in payload:
+            fields["description"] = payload["description"]
+        if not fields:
+            return JsonResponse({"error": "no fields"}, status=400)
+        ok = update_event(google_id, calendar_id, fields)
+        return JsonResponse({"ok": ok})
+
+    return JsonResponse({"error": "unknown action"}, status=400)
+
+
 _WHATSAPP_REPAIR_DATE = None  # set below
 def _init_repair_date():
     from datetime import date

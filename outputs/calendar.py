@@ -52,18 +52,41 @@ def _events_overlap(a: dict, b: dict) -> bool:
 
 
 def _find_existing(service, summary: str, date: str) -> dict | None:
-    """Search for an event with the same title around the given date."""
+    """Search for an event with the same title around the given date.
+
+    First consults the local CachedEvent table (fast + complete view across
+    all calendars). Falls back to a Google API search if the cache is empty.
+    Returns a dict shaped like a Google event payload so the rest of the
+    pipeline keeps working unchanged.
+    """
     if not summary or not date:
         return None
+
+    from common.models import CachedEvent
+
     try:
-        # Search ±3 days around target date
-        try:
-            target = datetime.strptime(date, "%Y-%m-%d")
-        except ValueError:
-            return None
+        target = datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        return None
+
+    # Local cache lookup: same calendar, ±3 days, exact-title match.
+    norm = re.sub(r"\s+", " ", summary.lower().strip())
+    cached = CachedEvent.objects.filter(
+        calendar_id=_CALENDAR_ID,
+        is_todo=False,
+        deleted_at__isnull=True,
+        start_at__date__gte=(target - timedelta(days=3)).date(),
+        start_at__date__lte=(target + timedelta(days=3)).date(),
+    )
+    for c in cached:
+        if re.sub(r"\s+", " ", (c.title or "").lower().strip()) == norm:
+            return c.raw or {"id": c.google_id, "summary": c.title,
+                              "start": {"date": str(c.start_at.date()) if c.start_at else date}}
+
+    # Cache miss → fall back to Google API
+    try:
         time_min = (target - timedelta(days=3)).isoformat() + "Z"
         time_max = (target + timedelta(days=4)).isoformat() + "Z"
-
         result = service.events().list(
             calendarId=_CALENDAR_ID,
             q=summary,
@@ -170,6 +193,68 @@ def _enrich_event(service, existing: dict, data: dict) -> str | None:
         return event_id
 
 
+def update_event(google_id: str, calendar_id: str = _CALENDAR_ID,
+                 fields: dict | None = None) -> bool:
+    """Patch an existing Google Calendar event and refresh the local cache.
+
+    fields keys mirror Google's event resource: summary, location, description,
+    start (dict {dateTime, timeZone}|{date}), end, attendees.
+    Returns True on success.
+    """
+    if not google_id or not fields:
+        return False
+    service = _build_service()
+    try:
+        result = service.events().patch(
+            calendarId=calendar_id, eventId=google_id, body=fields,
+        ).execute()
+    except Exception:
+        logger.exception("Error updating calendar event %s", google_id)
+        return False
+
+    try:
+        from common.models import CachedEvent
+        from django.utils import timezone as _tz
+        cached = CachedEvent.objects.filter(
+            google_id=google_id, calendar_id=calendar_id,
+        ).first()
+        if cached:
+            if "summary" in fields:
+                cached.title = (fields.get("summary") or "")[:512]
+            if "location" in fields:
+                cached.location = (fields.get("location") or "")[:512]
+            if "description" in fields:
+                cached.description = fields.get("description") or ""
+            cached.raw = result
+            cached.last_seen_at = _tz.now()
+            cached.save()
+    except Exception:
+        logger.exception("CachedEvent refresh failed for %s", google_id)
+    return True
+
+
+def delete_event(google_id: str, calendar_id: str = _CALENDAR_ID) -> bool:
+    """Delete a Google Calendar event and soft-delete the local cache row."""
+    if not google_id:
+        return False
+    service = _build_service()
+    try:
+        service.events().delete(calendarId=calendar_id, eventId=google_id).execute()
+    except Exception:
+        logger.exception("Error deleting calendar event %s", google_id)
+        return False
+
+    try:
+        from common.models import CachedEvent
+        from django.utils import timezone as _tz
+        CachedEvent.objects.filter(
+            google_id=google_id, calendar_id=calendar_id,
+        ).update(deleted_at=_tz.now())
+    except Exception:
+        logger.exception("CachedEvent soft-delete failed for %s", google_id)
+    return True
+
+
 def upsert_event(data: dict) -> str | None:
     """
     Create or enrich a Google Calendar event.
@@ -190,6 +275,11 @@ def upsert_event(data: dict) -> str | None:
     service = _build_service()
     existing = _find_existing(service, title, date)
 
+    # AI second-pass: even if exact-title match failed, look for fuzzy
+    # duplicates (different language, more/less detail) within ±3 days.
+    if existing is None:
+        existing = _find_existing_ai(service, data)
+
     if existing:
         return _enrich_event(service, existing, data)
 
@@ -206,3 +296,59 @@ def upsert_event(data: dict) -> str | None:
     except Exception:
         logger.exception("Error creating calendar event: %s", data)
         return None
+
+
+def _find_existing_ai(service, data: dict) -> dict | None:
+    """Use Gemini to spot fuzzy duplicates (different language, varying detail).
+
+    Pulls all CachedEvent rows on the target calendar within ±3 days, then
+    asks Gemini whether any of them is the same activity. Falls back to None
+    on any error so we never block legitimate creations.
+    """
+    try:
+        from common.models import CachedEvent
+        from workflows.dedup import is_same_event
+    except Exception:
+        return None
+
+    try:
+        target = datetime.strptime(data.get("date", ""), "%Y-%m-%d")
+    except ValueError:
+        return None
+
+    candidates_qs = CachedEvent.objects.filter(
+        calendar_id=_CALENDAR_ID,
+        is_todo=False,
+        deleted_at__isnull=True,
+        start_at__date__gte=(target - timedelta(days=3)).date(),
+        start_at__date__lte=(target + timedelta(days=3)).date(),
+    ).only("google_id", "title", "start_at", "location", "raw")[:30]
+    candidates = [
+        {
+            "id": c.google_id,
+            "title": c.title,
+            "date": c.start_at.date().isoformat() if c.start_at else "",
+            "time": c.start_at.strftime("%H:%M") if c.start_at else "",
+            "location": c.location,
+        }
+        for c in candidates_qs
+    ]
+    if not candidates:
+        return None
+
+    new_event = {
+        "title": data.get("title", ""),
+        "date": data.get("date", ""),
+        "time": data.get("time", ""),
+        "location": data.get("location", ""),
+    }
+    match_id = is_same_event(new_event, candidates)
+    if not match_id:
+        return None
+
+    cached = CachedEvent.objects.filter(
+        calendar_id=_CALENDAR_ID, google_id=match_id, deleted_at__isnull=True,
+    ).first()
+    if not cached:
+        return None
+    return cached.raw or {"id": cached.google_id, "summary": cached.title}

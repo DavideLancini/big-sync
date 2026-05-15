@@ -20,22 +20,34 @@ def _build_service():
 
 
 def _find_existing_local(name: str, phone: str, email: str) -> Contact | None:
+    """Look up an existing local contact by email, phone, exact name, or alias.
+
+    Skips merged contacts (where merged_into is set). When a merged contact
+    matches anyway, the resolved canonical contact is returned.
+    """
     norm_phone = _normalize_phone(phone)
     norm_email = (email or "").lower().strip()
     norm_name = (name or "").strip()
+    norm_name_lc = norm_name.lower()
+
+    base = Contact.objects.filter(merged_into__isnull=True)
 
     if norm_email:
-        c = Contact.objects.filter(emails__contains=[norm_email]).first()
+        c = base.filter(emails__contains=[norm_email]).first()
         if c:
-            return c
+            return c.resolve()
     if norm_phone:
-        c = Contact.objects.filter(phones__contains=[norm_phone]).first()
+        c = base.filter(phones__contains=[norm_phone]).first()
         if c:
-            return c
+            return c.resolve()
     if norm_name:
-        c = Contact.objects.filter(name__iexact=norm_name).first()
+        c = base.filter(name__iexact=norm_name).first()
         if c:
-            return c
+            return c.resolve()
+        # Alias match: aliases is a JSONField list of lowercase strings.
+        c = base.filter(aliases__contains=[norm_name_lc]).first()
+        if c:
+            return c.resolve()
     return None
 
 
@@ -180,9 +192,72 @@ def upsert_contact(data: dict) -> str | None:
         return None
 
     local = _find_existing_local(name, phone, email)
+
+    # AI alias resolution: if no exact match but a name was given, ask Gemini
+    # whether this name is an alias of an existing contact. Records the alias
+    # on the canonical contact so future writes hit the cache directly.
+    if local is None and name:
+        local = _find_via_alias_ai(name, phone, email)
+
     service = _build_service()
 
     if local:
         return _enrich_contact(service, local, data)
     else:
         return _create_contact(service, data)
+
+
+def _find_via_alias_ai(name: str, phone: str, email: str) -> Contact | None:
+    """Use Gemini to spot alias matches (Ghira → Ghiraffa Rossi)."""
+    try:
+        from workflows.dedup import resolve_contact_alias
+    except Exception:
+        return None
+
+    norm = (name or "").strip().lower()
+    if not norm:
+        return None
+
+    # Candidate pool: contacts whose first name (or any alias) starts with the
+    # first letter of the queried name. Cheap pre-filter, AI does the rest.
+    first_token = norm.split()[0]
+    if not first_token:
+        return None
+
+    initial = first_token[0]
+    qs = (
+        Contact.objects
+        .filter(merged_into__isnull=True)
+        .exclude(name__exact="")
+        .filter(name__istartswith=initial)
+    )[:30]
+    candidates = [
+        {
+            "id": c.pk,
+            "name": c.name,
+            "aliases": c.aliases or [],
+            "phones": c.phones or [],
+            "emails": c.emails or [],
+            "company": c.company or "",
+        }
+        for c in qs
+    ]
+    if not candidates:
+        return None
+
+    decision = resolve_contact_alias(name, phone, email, candidates)
+    match_id = decision.get("match_id")
+    if not match_id:
+        return None
+
+    try:
+        contact = Contact.objects.get(pk=match_id).resolve()
+    except Contact.DoesNotExist:
+        return None
+
+    new_alias = decision.get("alias_to_add")
+    if new_alias and new_alias not in (contact.aliases or []) and new_alias != (contact.name or "").lower():
+        contact.aliases = list(contact.aliases or []) + [new_alias]
+        contact.save(update_fields=["aliases", "updated_at"])
+        logger.info("Added alias %r to contact %s (%s)", new_alias, contact.name, decision.get("reason"))
+    return contact
