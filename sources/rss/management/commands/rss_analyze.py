@@ -1,27 +1,14 @@
 """Classify unanalyzed RSS articles and merge them into daily topic summaries."""
-from datetime import timedelta
-
 from django.db import transaction
 from django.core.management.base import BaseCommand
-from django.utils import timezone
 
 from sources.rss.models import TOPICS, RssArticle, RssDailySummary, RssTopic
 from workflows.workflow_rss import classify_article, merge_into_summary
-
-RETENTION_DAYS = 10
 
 
 def _seed_topics():
     for slug, name, order in TOPICS:
         RssTopic.objects.get_or_create(slug=slug, defaults={"name": name, "order": order})
-
-
-def _cleanup(stdout):
-    cutoff = timezone.localdate() - timedelta(days=RETENTION_DAYS)
-    del_art, _ = RssArticle.objects.filter(published_at__date__lt=cutoff).delete()
-    del_sum, _ = RssDailySummary.objects.filter(date__lt=cutoff).delete()
-    if del_art or del_sum:
-        stdout.write(f"Cleanup: rimossi {del_art} articoli e {del_sum} riassunti > {RETENTION_DAYS}gg")
 
 
 def _claim_article(article_id: int) -> bool:
@@ -49,7 +36,6 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         _seed_topics()
-        _cleanup(self.stdout)
 
         article_ids = list(
             RssArticle.objects.filter(analyzed=False)
