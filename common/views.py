@@ -201,7 +201,25 @@ def rss_dashboard(request):
         except ValueError:
             pass
 
-    audio_path = settings.MEDIA_ROOT / "rss_audio" / f"{displayed_date}.wav"
+    from sources.rss.models import RssDailyAudio
+    audios = {
+        a.topic_id: a for a in
+        RssDailyAudio.objects.filter(date=displayed_date).select_related("topic")
+    }
+
+    audio_sections = []
+    missing_or_stale = 0
+    for s in summaries:
+        audio = audios.get(s.topic_id)
+        stale = audio is not None and audio.summary_updated_at < s.updated_at
+        if audio is None or stale:
+            missing_or_stale += 1
+        audio_sections.append({
+            "topic": s.topic,
+            "summary": s,
+            "audio": audio,
+            "stale": stale,
+        })
 
     ctx = {
         "tab": tab,
@@ -212,18 +230,26 @@ def rss_dashboard(request):
         "summary_dates": summary_dates,
         "today": today,
         "displayed_date": displayed_date,
-        "audio_exists": audio_path.exists(),
+        "audio_sections": audio_sections,
+        "audio_has_any": any(s["audio"] and not s["stale"] for s in audio_sections),
+        "audio_missing_or_stale": missing_or_stale,
     }
     return render(request, "common/rss.html", ctx)
 
 
-def rss_audio(request, date_str):
+def rss_audio(request, date_str, topic_slug):
     if not _is_authenticated(request):
         return redirect("login")
-    audio_path = settings.MEDIA_ROOT / "rss_audio" / f"{date_str}.wav"
-    if not audio_path.exists():
+    from sources.rss.models import RssDailyAudio
+    try:
+        audio = RssDailyAudio.objects.select_related("topic").get(
+            date=date_str, topic__slug=topic_slug
+        )
+    except RssDailyAudio.DoesNotExist:
         raise Http404
-    return FileResponse(open(audio_path, "rb"), content_type="audio/wav")
+    if not audio.file:
+        raise Http404
+    return FileResponse(audio.file.open("rb"), content_type="audio/wav")
 
 
 def rss_article(request, pk):
@@ -408,7 +434,7 @@ def run_command(request, action):
             date_type.fromisoformat(date_str)
         except ValueError:
             return JsonResponse({"error": "Data non valida"}, status=400)
-        commands[action] = manage + ["rss_audio_generate", "--date", date_str, "--force"]
+        commands[action] = manage + ["rss_audio_generate", "--date", date_str]
 
     if action not in commands:
         return JsonResponse({"error": "Unknown action"}, status=400)

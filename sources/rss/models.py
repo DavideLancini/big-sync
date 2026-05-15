@@ -74,3 +74,22 @@ class RssDailySummary(models.Model):
 
     def __str__(self):
         return f"{self.date} – {self.topic.name}"
+
+
+def _audio_upload_path(instance, filename):
+    return f"rss_audio/{instance.date}/{instance.topic.slug}.wav"
+
+
+class RssDailyAudio(models.Model):
+    topic = models.ForeignKey(RssTopic, on_delete=models.CASCADE, related_name="audios")
+    date = models.DateField()
+    file = models.FileField(upload_to=_audio_upload_path)
+    summary_updated_at = models.DateTimeField()
+    generated_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [("topic", "date")]
+        ordering = ["-date", "topic__order"]
+
+    def __str__(self):
+        return f"audio {self.date} – {self.topic.name}"

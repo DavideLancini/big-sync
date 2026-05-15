@@ -42,33 +42,12 @@ def _pcm_to_wav(pcm_data: bytes) -> bytes:
     return buf.getvalue()
 
 
-def generate_daily_briefing(date_label: str, summaries: list[dict], stdout=None) -> bytes:
-    """
-    Generate a WAV audio file reading all topic summaries for a day.
-    summaries: list of {'topic': str, 'text': str}
-    Returns WAV bytes.
-    """
-    def log(msg):
-        if stdout:
-            stdout.write(msg)
+def text_to_wav(text: str) -> bytes:
+    """Generate a WAV file from a text string. Returns WAV bytes."""
+    pcm = _text_to_pcm(text)
+    return _pcm_to_wav(pcm)
 
-    pcm_chunks = []
 
-    intro = f"Briefing del {date_label}."
-    log(f"  Intro...")
-    pcm_chunks.append(_text_to_pcm(intro))
-    pcm_chunks.append(_SILENCE)
-
-    for s in summaries:
-        text = s["text"].strip()
-        if not text:
-            continue
-        topic = s["topic"]
-        log(f"  {topic}...")
-        section_text = f"Sezione {topic}. {text}"
-        pcm_chunks.append(_text_to_pcm(section_text))
-        pcm_chunks.append(_SILENCE)
-
-    log("  Composizione file WAV...")
-    combined = b"".join(pcm_chunks)
-    return _pcm_to_wav(combined)
+def generate_section_wav(topic_name: str, text: str) -> bytes:
+    """Generate a WAV for a single topic section, prefixed with the topic name."""
+    return text_to_wav(f"Sezione {topic_name}. {text.strip()}")

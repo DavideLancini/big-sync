@@ -137,35 +137,50 @@
     {% if summaries %}
 
     <div style="margin-bottom:1.25rem;">
-      {% if audio_exists %}
-      <div style="background:#13151f;border:1px solid #1e2030;border-radius:10px;padding:0.75rem 1rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
+      <div style="background:#13151f;border:1px solid #1e2030;border-radius:10px;padding:0.75rem 1rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
         <span style="font-size:0.75rem;font-weight:600;color:#6366f1;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;vertical-align:middle;margin-right:0.3rem;"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
           Briefing audio
         </span>
-        <audio controls src="{% url 'rss_audio' displayed_date|date:'Y-m-d' %}" style="flex:1;min-width:200px;height:32px;accent-color:#6366f1;"></audio>
-        <button class="btn" id="audio-btn" onclick="generateAudio('{{ displayed_date|date:"Y-m-d" }}')">Rigenera</button>
+        {% if audio_has_any %}
+        <button class="btn" id="play-all-btn" onclick="playAllAudios()" style="background:#6366f1;color:#fff;">▶ Riproduci tutto</button>
+        {% endif %}
+        <button class="btn" id="audio-btn" onclick="generateAudio('{{ displayed_date|date:"Y-m-d" }}')">
+          {% if audio_missing_or_stale %}Genera mancanti ({{ audio_missing_or_stale }}){% else %}Aggiorna audio{% endif %}
+        </button>
+        <span style="font-size:0.7rem;color:#6b7280;">{{ audio_sections|length }} sezioni · {{ audio_missing_or_stale }} da generare</span>
       </div>
-      {% else %}
-      <button class="btn" id="audio-btn" onclick="generateAudio('{{ displayed_date|date:"Y-m-d" }}')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
-        Genera briefing audio
-      </button>
-      {% endif %}
       <div id="audio-log" style="background:#0a0b12;border:1px solid #1e2030;border-radius:8px;padding:0.75rem 1rem;font-family:monospace;font-size:0.75rem;color:#4ade80;white-space:pre-wrap;margin-top:0.75rem;max-height:150px;overflow-y:auto;display:none;"></div>
     </div>
 
     <div class="topic-cards">
-      {% for s in summaries %}
+      {% for sec in audio_sections %}
       <div class="topic-card">
         <div class="topic-header" onclick="toggleTopic(this)">
-          <span class="topic-name">{{ s.topic.name }}</span>
+          <span class="topic-name">
+            {{ sec.topic.name }}
+            {% if sec.audio and not sec.stale %}
+              <span style="font-size:0.65rem;color:#4ade80;margin-left:0.4rem;">● audio</span>
+            {% elif sec.stale %}
+              <span style="font-size:0.65rem;color:#f59e0b;margin-left:0.4rem;">● audio obsoleto</span>
+            {% else %}
+              <span style="font-size:0.65rem;color:#6b7280;margin-left:0.4rem;">○ no audio</span>
+            {% endif %}
+          </span>
           <div style="display:flex;align-items:center;gap:0.75rem;">
-            <span class="topic-count">{{ s.article_count }} articol{{ s.article_count|pluralize:"o,i" }}</span>
+            <span class="topic-count">{{ sec.summary.article_count }} articol{{ sec.summary.article_count|pluralize:"o,i" }}</span>
             <svg class="topic-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><polyline points="6 9 12 15 18 9"/></svg>
           </div>
         </div>
-        <div class="topic-body">{{ s.text|linebreaks }}</div>
+        <div class="topic-body">
+          {% if sec.audio and not sec.stale %}
+          <audio controls preload="none"
+                 data-topic-slug="{{ sec.topic.slug }}"
+                 src="{% url 'rss_audio' displayed_date|date:'Y-m-d' sec.topic.slug %}"
+                 style="width:100%;height:32px;accent-color:#6366f1;margin-bottom:0.75rem;"></audio>
+          {% endif %}
+          {{ sec.summary.text|linebreaks }}
+        </div>
       </div>
       {% endfor %}
     </div>
@@ -191,6 +206,25 @@
       const isOpen = body.classList.contains('open');
       body.classList.toggle('open', !isOpen);
       chevron.classList.toggle('open', !isOpen);
+    }
+
+    function playAllAudios() {
+      const audios = Array.from(document.querySelectorAll('audio[data-topic-slug]'));
+      if (!audios.length) return;
+      // Open all topic cards so the listener sees what's playing
+      document.querySelectorAll('.topic-header').forEach(h => {
+        const body = h.nextElementSibling;
+        if (!body.classList.contains('open')) toggleTopic(h);
+      });
+      let i = 0;
+      const playNext = () => {
+        if (i >= audios.length) return;
+        const a = audios[i];
+        a.scrollIntoView({behavior: 'smooth', block: 'center'});
+        a.play();
+        a.onended = () => { i++; playNext(); };
+      };
+      playNext();
     }
 
     function generateAudio(dateStr) {

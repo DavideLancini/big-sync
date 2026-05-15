@@ -1,20 +1,30 @@
-"""Generate WAV audio briefing for a given date's RSS summaries."""
-import sys
+"""Generate per-topic WAV audio briefings for a given date.
+
+For each RssDailySummary of the date with article_count > 0:
+  - if no RssDailyAudio exists, generate it
+  - if RssDailyAudio exists but its summary_updated_at is older than
+    the summary's updated_at (section was re-analyzed), regenerate it
+  - else skip (already fresh)
+
+Audio files live in media/rss_audio/{YYYY-MM-DD}/{topic_slug}.wav
+"""
 from datetime import date as date_type
 
 from django.conf import settings
+from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand, CommandError
 
-from sources.rss.models import RssDailySummary
-from workflows.tts import generate_daily_briefing
+from sources.rss.models import RssDailyAudio, RssDailySummary
+from workflows.tts import generate_section_wav
 
 
 class Command(BaseCommand):
-    help = "Generate WAV audio briefing from daily RSS summaries"
+    help = "Generate per-topic WAV audio briefings for a date (only missing/stale)"
 
     def add_arguments(self, parser):
         parser.add_argument("--date", default=None, help="Date YYYY-MM-DD (default: today)")
-        parser.add_argument("--force", action="store_true", help="Regenerate even if file exists")
+        parser.add_argument("--force", action="store_true",
+                            help="Regenerate all sections, even if fresh")
 
     def handle(self, *args, **options):
         if options["date"]:
@@ -26,15 +36,6 @@ class Command(BaseCommand):
             from django.utils import timezone
             target_date = timezone.localdate()
 
-        audio_dir = settings.MEDIA_ROOT / "rss_audio"
-        audio_dir.mkdir(parents=True, exist_ok=True)
-        audio_path = audio_dir / f"{target_date}.wav"
-
-        if audio_path.exists() and not options["force"]:
-            self.stdout.write(f"File già esistente: {audio_path}")
-            self.stdout.write("Usa --force per rigenerare.")
-            return
-
         summaries = list(
             RssDailySummary.objects
             .filter(date=target_date, article_count__gt=0)
@@ -43,15 +44,48 @@ class Command(BaseCommand):
         )
 
         if not summaries:
-            raise CommandError(f"Nessun riassunto trovato per {target_date}")
+            self.stdout.write(f"Nessun riassunto per {target_date}, nulla da fare.")
+            return
 
-        self.stdout.write(f"Generazione audio per {target_date} ({len(summaries)} sezioni)...")
+        existing = {a.topic_id: a for a in RssDailyAudio.objects.filter(date=target_date)}
 
-        date_label = target_date.strftime("%-d %B %Y")
-        wav_data = generate_daily_briefing(date_label, [
-            {"topic": s.topic.name, "text": s.text} for s in summaries
-        ], stdout=self.stdout)
+        to_generate = []
+        skipped = 0
+        for s in summaries:
+            existing_audio = existing.get(s.topic_id)
+            if not options["force"] and existing_audio and existing_audio.summary_updated_at >= s.updated_at:
+                skipped += 1
+                continue
+            to_generate.append(s)
 
-        audio_path.write_bytes(wav_data)
-        size_kb = len(wav_data) // 1024
-        self.stdout.write(f"Salvato: {audio_path} ({size_kb} KB)")
+        self.stdout.write(
+            f"Data {target_date}: {len(summaries)} sezioni totali, "
+            f"{len(to_generate)} da generare, {skipped} già aggiornate."
+        )
+
+        if not to_generate:
+            self.stdout.write("Tutto aggiornato, nessuna nuova notizia da convertire.")
+            return
+
+        for s in to_generate:
+            self.stdout.write(f"  {s.topic.name}...")
+            wav = generate_section_wav(s.topic.name, s.text)
+
+            audio_obj = existing.get(s.topic_id)
+            if audio_obj is None:
+                audio_obj = RssDailyAudio(topic=s.topic, date=target_date,
+                                          summary_updated_at=s.updated_at)
+            else:
+                # Delete old file from disk before saving the new one.
+                if audio_obj.file:
+                    audio_obj.file.delete(save=False)
+                audio_obj.summary_updated_at = s.updated_at
+
+            filename = f"{s.topic.slug}.wav"
+            audio_obj.file.save(filename, ContentFile(wav), save=False)
+            audio_obj.save()
+
+            size_kb = len(wav) // 1024
+            self.stdout.write(f"    → {audio_obj.file.name} ({size_kb} KB)")
+
+        self.stdout.write(f"Generate {len(to_generate)} sezioni in media/rss_audio/{target_date}/")
