@@ -102,7 +102,9 @@ class Command(BaseCommand):
         total_deleted = 0
 
         for cal in calendars:
-            cal_id = cal["id"]
+            # Normalize the primary calendar's id to the literal "primary"
+            # so it lines up with what outputs/*.py uses when reading/writing.
+            cal_id = "primary" if cal.get("primary") else cal["id"]
             cal_name = cal.get("summary", "")
             self.stdout.write(f"\n--- {cal_name} ({cal_id}) ---")
 
