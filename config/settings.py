@@ -29,6 +29,8 @@ INSTALLED_APPS = [
     "sources.home_assistant",
     "sources.rss",
     "sources.plaud",
+    # Telemetry
+    "usage",
 ]
 
 MIDDLEWARE = [

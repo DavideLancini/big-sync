@@ -88,7 +88,7 @@ def _analyze_new_message(obj: TelegramMessage, chat_name: str) -> dict:
                  else obj.text),
         "media_type": obj.media_type,
     }
-    counts = process_realtime_message(chat_name, new_msg, context_msgs)
+    counts = process_realtime_message(chat_name, new_msg, context_msgs, source="telegram")
     _mark_processed(obj.pk)
     return counts
 

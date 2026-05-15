@@ -161,7 +161,7 @@ def _analyze(obj: WhatsAppMessage) -> dict:
                  else obj.text),
         "media_type": obj.media_type,
     }
-    counts = process_realtime_message(obj.chat_name, new_msg, context)
+    counts = process_realtime_message(obj.chat_name, new_msg, context, source="whatsapp")
     _mark_processed(obj.pk)
     return counts
 

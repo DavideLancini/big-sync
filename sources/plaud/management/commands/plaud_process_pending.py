@@ -33,7 +33,8 @@ class Command(BaseCommand):
         for rec in items:
             self.stdout.write(f"[{rec.pk}] {rec.original_name or rec.file.name}")
             try:
-                text, usage = transcribe_audio(rec.file.path, return_usage=True)
+                text, usage = transcribe_audio(rec.file.path, return_usage=True,
+                                                source="plaud", ref_id=rec.pk)
                 total_in += usage["prompt"]
                 total_out += usage["output"]
                 total_tot += usage["total"]

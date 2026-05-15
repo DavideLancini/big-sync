@@ -31,7 +31,7 @@ def classify_article(title: str, text: str) -> str:
         f"Testo: {text[:600]}\n\n"
         f"Categoria:"
     )
-    result = ask_text(prompt).strip()
+    result = ask_text(prompt, source="rss", operation="classify").strip()
     for t in TOPIC_NAMES:
         if result == t:
             return t
@@ -66,4 +66,4 @@ def merge_into_summary(topic_name: str, current_summary: str, title: str, source
         f"- Non usare markdown, titoletti o elenchi puntati\n"
         f"- Rispondi SOLO con il testo del riassunto aggiornato"
     )
-    return ask_text(prompt)
+    return ask_text(prompt, source="rss", operation="merge_summary", ref_id=topic_name[:64])

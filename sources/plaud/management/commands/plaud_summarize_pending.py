@@ -33,7 +33,8 @@ class Command(BaseCommand):
         for rec in items:
             self.stdout.write(f"[{rec.pk}] {rec.original_name[:60]}")
             try:
-                title, summary = summarize_transcription(rec.transcription)
+                title, summary = summarize_transcription(rec.transcription,
+                                                          source="plaud", ref_id=rec.pk)
                 rec.title = title
                 rec.summary = summary
                 rec.summarized = True
@@ -50,7 +51,8 @@ class Command(BaseCommand):
                     "text": rec.transcription,
                     "media_type": "voice",
                 }
-                counts = process_realtime_message("Plaud · Voice Notes", new_msg, [])
+                counts = process_realtime_message("Plaud · Voice Notes", new_msg, [],
+                                                   source="plaud")
                 self.stdout.write(
                     f"  → extracted: contacts:{counts['contacts']} "
                     f"events:{counts['events']} todos:{counts['todos']}"

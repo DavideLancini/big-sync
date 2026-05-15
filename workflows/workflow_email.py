@@ -37,7 +37,7 @@ def tag_email(sender: str, subject: str, body: str) -> list[str]:
         f"Testo: {body[:800]}\n\n"
         f"Tag:"
     )
-    raw = ask_text(prompt).strip()
+    raw = ask_text(prompt, source="email", operation="tag_email").strip()
 
     tags = []
     for part in raw.split(","):

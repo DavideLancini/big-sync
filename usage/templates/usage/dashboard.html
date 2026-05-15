@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>big-sync · Usage</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; display: flex; }
+    .sidebar { width: 56px; min-height: 100vh; background: #13151f; border-right: 1px solid #1e2030; display: flex; flex-direction: column; align-items: center; padding: 1rem 0; gap: 0.25rem; flex-shrink: 0; }
+    .sidebar .logo { font-size: 1.1rem; font-weight: 800; color: #6366f1; margin-bottom: 1rem; letter-spacing: -0.05em; }
+    .nav-item { position: relative; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 10px; cursor: default; transition: background 0.15s; }
+    .nav-item.active { background: #1e2030; color: #6366f1; }
+    .nav-item:not(.active) { color: #2d3148; }
+    .nav-item svg { width: 20px; height: 20px; }
+    .nav-item .tooltip { position: absolute; left: 52px; background: #1e2030; color: #e2e8f0; font-size: 0.7rem; font-weight: 500; padding: 0.3rem 0.6rem; border-radius: 6px; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.15s; border: 1px solid #2d3148; z-index: 10; }
+    .nav-item:hover .tooltip { opacity: 1; }
+    .nav-item.active .tooltip { color: #6366f1; }
+    .sidebar-divider { width: 24px; height: 1px; background: #1e2030; margin: 0.25rem 0; }
+    .sidebar-spacer { flex: 1; }
+    main { flex: 1; padding: 2rem; overflow-y: auto; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; }
+    h1 { font-size: 1.5rem; font-weight: 700; color: #fff; letter-spacing: -0.02em; }
+    h1 span { color: #6366f1; }
+    .since { font-size: 0.7rem; color: #64748b; }
+    section { margin-bottom: 2rem; }
+    h2 { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; margin-bottom: 0.75rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1rem; }
+    .card { background: #1e2030; border: 1px solid #2d3148; border-radius: 10px; padding: 1.25rem; }
+    .card .val { font-size: 1.8rem; font-weight: 700; color: #fff; line-height: 1; }
+    .card .val.accent { color: #6366f1; }
+    .card .val.green  { color: #4ade80; }
+    .card .label { font-size: 0.75rem; color: #64748b; margin-top: 0.4rem; }
+    table { width: 100%; border-collapse: collapse; background: #13151f; border: 1px solid #1e2030; border-radius: 10px; overflow: hidden; font-size: 0.78rem; }
+    th, td { text-align: left; padding: 0.55rem 0.85rem; border-bottom: 1px solid #1e2030; vertical-align: top; }
+    th { background: #1a1c28; color: #94a3b8; font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    tbody tr:last-child td { border-bottom: none; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .pill { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; background: #1e2030; color: #94a3b8; font-size: 0.68rem; font-weight: 600; }
+    .pill.s-plaud   { background: #2a1a3a; color: #c084fc; }
+    .pill.s-rss     { background: #1a3a2a; color: #4ade80; }
+    .pill.s-telegram{ background: #1a2a3a; color: #60a5fa; }
+    .pill.s-whatsapp{ background: #1a3a2a; color: #4ade80; }
+    .pill.s-email   { background: #2a2a1a; color: #fbbf24; }
+    .pill.s-unknown { background: #1e2030; color: #64748b; }
+    .err-row td { background: #2a1a1a; color: #f87171; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  {% with active="usage" %}{% include "common/_sidebar.html" %}{% endwith %}
+
+  <main>
+    <div class="topbar">
+      <h1>big<span>-sync</span> · Usage</h1>
+      <span class="since">ultimi 30 giorni · da {{ since|date:"d/m/Y H:i" }}</span>
+    </div>
+
+    <section>
+      <h2>Totali</h2>
+      <div class="grid">
+        <div class="card"><div class="val accent">${{ totals.cost|default_if_none:0|floatformat:3 }}</div><div class="label">Costo USD</div></div>
+        <div class="card"><div class="val">{{ totals.calls|default_if_none:0 }}</div><div class="label">Chiamate</div></div>
+        <div class="card"><div class="val">{{ totals.total|default_if_none:0 }}</div><div class="label">Token totali</div></div>
+        <div class="card"><div class="val green">{{ totals.prompt|default_if_none:0 }}</div><div class="label">Token input</div></div>
+        <div class="card"><div class="val">{{ totals.output|default_if_none:0 }}</div><div class="label">Token output</div></div>
+      </div>
+    </section>
+
+    <div class="two-col">
+      <section>
+        <h2>Per fonte</h2>
+        <table>
+          <thead><tr><th>Fonte</th><th class="num">Chiamate</th><th class="num">Tokens</th><th class="num">Costo $</th></tr></thead>
+          <tbody>
+            {% for r in by_source %}
+            <tr>
+              <td><span class="pill s-{{ r.source }}">{{ r.source }}</span></td>
+              <td class="num">{{ r.calls }}</td>
+              <td class="num">{{ r.tokens|default:0 }}</td>
+              <td class="num">{{ r.cost|default:0|floatformat:4 }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" style="color:#64748b;">Nessun dato.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Per modello</h2>
+        <table>
+          <thead><tr><th>Modello</th><th class="num">Chiamate</th><th class="num">Tokens</th><th class="num">Costo $</th></tr></thead>
+          <tbody>
+            {% for r in by_model %}
+            <tr>
+              <td>{{ r.model }}</td>
+              <td class="num">{{ r.calls }}</td>
+              <td class="num">{{ r.tokens|default:0 }}</td>
+              <td class="num">{{ r.cost|default:0|floatformat:4 }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" style="color:#64748b;">Nessun dato.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+    </div>
+
+    <div class="two-col">
+      <section>
+        <h2>Per operazione</h2>
+        <table>
+          <thead><tr><th>Operazione</th><th class="num">Chiamate</th><th class="num">Tokens</th><th class="num">Costo $</th></tr></thead>
+          <tbody>
+            {% for r in by_operation %}
+            <tr>
+              <td>{{ r.operation }}</td>
+              <td class="num">{{ r.calls }}</td>
+              <td class="num">{{ r.tokens|default:0 }}</td>
+              <td class="num">{{ r.cost|default:0|floatformat:4 }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" style="color:#64748b;">Nessun dato.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Per giorno</h2>
+        <table>
+          <thead><tr><th>Giorno</th><th class="num">Chiamate</th><th class="num">Tokens</th><th class="num">Costo $</th></tr></thead>
+          <tbody>
+            {% for r in by_day %}
+            <tr>
+              <td>{{ r.day }}</td>
+              <td class="num">{{ r.calls }}</td>
+              <td class="num">{{ r.tokens|default:0 }}</td>
+              <td class="num">{{ r.cost|default:0|floatformat:4 }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" style="color:#64748b;">Nessun dato.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+    </div>
+
+    {% if errors %}
+    <section>
+      <h2>Errori recenti</h2>
+      <table>
+        <thead><tr><th>Quando</th><th>Fonte</th><th>Modello</th><th>Op</th><th>Errore</th></tr></thead>
+        <tbody>
+          {% for u in errors %}
+          <tr class="err-row">
+            <td>{{ u.created_at|date:"d/m H:i:s" }}</td>
+            <td><span class="pill s-{{ u.source }}">{{ u.source }}</span></td>
+            <td>{{ u.model }}</td>
+            <td>{{ u.operation }}</td>
+            <td>{{ u.error|truncatechars:140 }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% endif %}
+
+    <section>
+      <h2>Ultime 50 chiamate</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Quando</th><th>Fonte</th><th>Modello</th><th>Op</th>
+            <th class="num">In</th><th class="num">Out</th><th class="num">Tot</th>
+            <th class="num">Costo $</th><th class="num">ms</th><th>Ref</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in recent %}
+          <tr>
+            <td>{{ u.created_at|date:"d/m H:i:s" }}</td>
+            <td><span class="pill s-{{ u.source }}">{{ u.source }}</span></td>
+            <td>{{ u.model }}</td>
+            <td>{{ u.operation }}</td>
+            <td class="num">{{ u.prompt_tokens }}</td>
+            <td class="num">{{ u.output_tokens }}</td>
+            <td class="num">{{ u.total_tokens }}</td>
+            <td class="num">{{ u.cost_usd|floatformat:5 }}</td>
+            <td class="num">{{ u.duration_ms }}</td>
+            <td style="font-size:0.7rem;color:#64748b;">{{ u.ref_type }}{% if u.ref_id %}/{{ u.ref_id }}{% endif %}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="10" style="color:#64748b;">Nessuna chiamata ancora registrata.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>

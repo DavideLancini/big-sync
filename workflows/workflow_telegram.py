@@ -20,7 +20,8 @@ def _parse_fallback(date_str: str, time_str: str) -> datetime | None:
         return None
 
 
-def process_batch(chat_name: str, date: str, messages: list[dict]) -> dict:
+def process_batch(chat_name: str, date: str, messages: list[dict],
+                  source: str = "telegram") -> dict:
     """
     Analyze a batch of messages from a single chat on a single day.
     messages: list of dicts with keys: time, sender, text, media_type
@@ -31,7 +32,7 @@ def process_batch(chat_name: str, date: str, messages: list[dict]) -> dict:
 
     prompt = batch_prompt(chat_name, date, messages)
     # Raises on Gemini error — caller must NOT mark messages as processed on exception
-    extracted = ask(prompt)
+    extracted = ask(prompt, source=source, operation="extract_batch", ref_id=chat_name[:64])
     # Fallback datetime for todos missing start: use last message time in the batch
     last_time = messages[-1].get("time") or "08:00"
     fallback = _parse_fallback(date, last_time)
@@ -39,13 +40,13 @@ def process_batch(chat_name: str, date: str, messages: list[dict]) -> dict:
 
 
 def process_message(chat_name: str, sender: str, datetime_str: str,
-                    text: str, media_type: str) -> dict:
+                    text: str, media_type: str, source: str = "telegram") -> dict:
     """
     Analyze a single real-time message.
     Returns counts: {contacts, events, todos}
     """
     prompt = single_prompt(chat_name, sender, datetime_str, text, media_type)
-    extracted = ask(prompt)
+    extracted = ask(prompt, source=source, operation="extract_single", ref_id=chat_name[:64])
     fallback = None
     try:
         fallback = datetime.strptime(datetime_str, "%Y-%m-%d %H:%M")
@@ -54,7 +55,8 @@ def process_message(chat_name: str, sender: str, datetime_str: str,
     return _write_extracted(extracted, source=f"realtime:{chat_name}", fallback_datetime=fallback)
 
 
-def process_realtime_message(chat_name: str, new_msg: dict, context_msgs: list[dict]) -> dict:
+def process_realtime_message(chat_name: str, new_msg: dict, context_msgs: list[dict],
+                              source: str = "telegram") -> dict:
     """
     Analyze a new real-time message using up to 10 preceding messages as context.
     new_msg / context_msgs: dicts with keys: time, date, sender, text, media_type
@@ -62,7 +64,7 @@ def process_realtime_message(chat_name: str, new_msg: dict, context_msgs: list[d
     Returns counts: {contacts, events, todos}
     """
     prompt = realtime_prompt(chat_name, new_msg, context_msgs)
-    extracted = ask(prompt)
+    extracted = ask(prompt, source=source, operation="extract_realtime", ref_id=chat_name[:64])
     fallback = _parse_fallback(new_msg.get("date", ""), new_msg.get("time", ""))
     return _write_extracted(extracted, source=f"realtime:{chat_name}", fallback_datetime=fallback)
 

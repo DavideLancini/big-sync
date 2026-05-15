@@ -56,14 +56,25 @@ def _audio_mime_type(path: str) -> str:
     }.get(ext, "audio/ogg")
 
 
+def _extract_usage(response) -> dict:
+    usage = getattr(response, "usage_metadata", None)
+    return {
+        "prompt": getattr(usage, "prompt_token_count", 0) or 0,
+        "output": getattr(usage, "candidates_token_count", 0) or 0,
+        "total": getattr(usage, "total_token_count", 0) or 0,
+    }
+
+
 def transcribe_audio(file_path: str, model: str = "gemini-2.5-flash", retries: int = 4,
-                     return_usage: bool = False):
+                     return_usage: bool = False,
+                     source: str = "unknown", ref_id: str | int = ""):
     """
     Transcribe an audio/voice file using Gemini File API.
     Waits for the upload to reach ACTIVE state before calling generate_content,
     and retries 5xx errors with exponential backoff.
     """
     import time
+    from workflows.usage_logger import log_usage
     client = _get_client()
     mime_type = _audio_mime_type(file_path)
     uploaded = None
@@ -77,6 +88,7 @@ def transcribe_audio(file_path: str, model: str = "gemini-2.5-flash", retries: i
 
         last_exc = None
         for attempt in range(retries):
+            t0 = time.time()
             try:
                 response = client.models.generate_content(
                     model=model,
@@ -86,13 +98,14 @@ def transcribe_audio(file_path: str, model: str = "gemini-2.5-flash", retries: i
                     ],
                 )
                 text = (response.text or "").strip()
+                u = _extract_usage(response)
+                log_usage(provider="gemini", model=model, operation="transcribe",
+                          source=source, prompt_tokens=u["prompt"],
+                          output_tokens=u["output"], total_tokens=u["total"],
+                          duration_ms=int((time.time() - t0) * 1000),
+                          ref_type="audio", ref_id=ref_id)
                 if return_usage:
-                    usage = getattr(response, "usage_metadata", None)
-                    return text, {
-                        "prompt": getattr(usage, "prompt_token_count", 0) or 0,
-                        "output": getattr(usage, "candidates_token_count", 0) or 0,
-                        "total": getattr(usage, "total_token_count", 0) or 0,
-                    }
+                    return text, u
                 return text
             except Exception as e:
                 last_exc = e
@@ -103,6 +116,9 @@ def transcribe_audio(file_path: str, model: str = "gemini-2.5-flash", retries: i
                                    status, attempt + 1, wait)
                     time.sleep(wait)
                 else:
+                    log_usage(provider="gemini", model=model, operation="transcribe",
+                              source=source, duration_ms=int((time.time() - t0) * 1000),
+                              ref_type="audio", ref_id=ref_id, error=str(e))
                     raise
         raise last_exc
     finally:
@@ -113,7 +129,8 @@ def transcribe_audio(file_path: str, model: str = "gemini-2.5-flash", retries: i
                 pass
 
 
-def summarize_transcription(text: str, model: str = "gemini-2.5-flash") -> tuple[str, str]:
+def summarize_transcription(text: str, model: str = "gemini-2.5-flash",
+                             source: str = "plaud", ref_id: str | int = "") -> tuple[str, str]:
     """
     Given a transcription, produce (title, summary_markdown).
     Title is one short Italian sentence (max 80 chars). Summary is markdown
@@ -145,7 +162,7 @@ TITLE: <titolo descrittivo in italiano, max 80 caratteri, frase secca, no virgol
 ## Persone citate
 - bullet 1-2 righe se presenti
 """
-    raw = ask_text(prompt, model=model)
+    raw = ask_text(prompt, model=model, source=source, operation="summarize", ref_id=ref_id)
     title = ""
     summary = ""
     if "---SUMMARY---" in raw:
@@ -184,14 +201,24 @@ def extract_json(text: str) -> dict:
         return {"contacts": [], "events": [], "todos": []}
 
 
-def ask_text(prompt: str, model: str = "gemini-2.5-flash", retries: int = 3) -> str:
+def ask_text(prompt: str, model: str = "gemini-2.5-flash", retries: int = 3,
+             source: str = "unknown", operation: str = "ask_text",
+             ref_id: str | int = "") -> str:
     """Send prompt to Gemini, return raw text response."""
     import time
+    from workflows.usage_logger import log_usage
     client = _get_client()
     last_exc = None
     for attempt in range(retries):
+        t0 = time.time()
         try:
             response = client.models.generate_content(model=model, contents=prompt)
+            u = _extract_usage(response)
+            log_usage(provider="gemini", model=model, operation=operation,
+                      source=source, prompt_tokens=u["prompt"],
+                      output_tokens=u["output"], total_tokens=u["total"],
+                      duration_ms=int((time.time() - t0) * 1000),
+                      ref_type="", ref_id=ref_id)
             return response.text.strip()
         except Exception as e:
             last_exc = e
@@ -201,22 +228,35 @@ def ask_text(prompt: str, model: str = "gemini-2.5-flash", retries: int = 3) -> 
                 logger.warning("Gemini %s on attempt %d, retrying in %ds", status, attempt + 1, wait)
                 time.sleep(wait)
             else:
+                log_usage(provider="gemini", model=model, operation=operation,
+                          source=source, duration_ms=int((time.time() - t0) * 1000),
+                          ref_id=ref_id, error=str(e))
                 raise
     raise last_exc
 
 
-def ask(prompt: str, model: str = "gemini-2.5-flash", retries: int = 3) -> dict:
+def ask(prompt: str, model: str = "gemini-2.5-flash", retries: int = 3,
+        source: str = "unknown", operation: str = "ask",
+        ref_id: str | int = "") -> dict:
     """
     Send prompt to Gemini, return parsed JSON extraction result.
     Retries up to `retries` times on 5xx errors with exponential backoff.
     Raises on API error after all retries exhausted.
     """
     import time
+    from workflows.usage_logger import log_usage
     client = _get_client()
     last_exc = None
     for attempt in range(retries):
+        t0 = time.time()
         try:
             response = client.models.generate_content(model=model, contents=prompt)
+            u = _extract_usage(response)
+            log_usage(provider="gemini", model=model, operation=operation,
+                      source=source, prompt_tokens=u["prompt"],
+                      output_tokens=u["output"], total_tokens=u["total"],
+                      duration_ms=int((time.time() - t0) * 1000),
+                      ref_id=ref_id)
             return extract_json(response.text)
         except Exception as e:
             last_exc = e
@@ -226,5 +266,8 @@ def ask(prompt: str, model: str = "gemini-2.5-flash", retries: int = 3) -> dict:
                 logger.warning("Gemini %s on attempt %d, retrying in %ds", status, attempt + 1, wait)
                 time.sleep(wait)
             else:
+                log_usage(provider="gemini", model=model, operation=operation,
+                          source=source, duration_ms=int((time.time() - t0) * 1000),
+                          ref_id=ref_id, error=str(e))
                 raise
     raise last_exc

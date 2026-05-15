@@ -69,7 +69,8 @@ class Command(BaseCommand):
 
         for s in to_generate:
             self.stdout.write(f"  {s.topic.name}...")
-            wav = generate_section_wav(s.topic.name, s.text)
+            wav = generate_section_wav(s.topic.name, s.text,
+                                         source="rss", ref_id=s.topic.slug)
 
             audio_obj = existing.get(s.topic_id)
             if audio_obj is None:

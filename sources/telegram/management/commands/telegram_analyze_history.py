@@ -210,7 +210,7 @@ class Command(BaseCommand):
                     self.stdout.write(f"\n    [transcribing {m.pk} ({os.path.getsize(abs_path)//1024}KB)...]", ending="")
                     self.stdout.flush()
                     try:
-                        t = transcribe_audio(abs_path)
+                        t = transcribe_audio(abs_path, source="telegram", ref_id=m.pk)
                         if t:
                             TelegramMessage.objects.filter(pk=m.pk).update(transcription=t)
                             m.transcription = t
@@ -232,7 +232,7 @@ class Command(BaseCommand):
             ]
 
             try:
-                counts = process_batch(chat_name, date_str, batch_data)
+                counts = process_batch(chat_name, date_str, batch_data, source="telegram")
             except Exception as e:
                 self.stdout.write(f" → GEMINI ERROR: {e} [not marked processed]")
                 logger.exception("Gemini error on batch %s %s", chat_name, date_str)
