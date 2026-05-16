@@ -18,7 +18,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
-from common.views import email_dashboard, email_detail, home, home_stats_json, item_action, items_dashboard, login_view, logout_view, plaud_dashboard, plaud_upload, rss_article, rss_audio, rss_audio_start, rss_audio_status, rss_dashboard, run_command, source_placeholder, telegram_dashboard, whatsapp_dashboard
+from common.views import contacts_dashboard, contacts_merge_action, email_dashboard, email_detail, home, home_stats_json, item_action, items_dashboard, login_view, logout_view, plaud_dashboard, plaud_upload, rss_article, rss_audio, rss_audio_start, rss_audio_status, rss_dashboard, run_command, source_placeholder, telegram_dashboard, whatsapp_dashboard
 from usage.views import usage_dashboard
 
 urlpatterns = [
@@ -43,6 +43,8 @@ urlpatterns = [
     path("api/rss_audio_status/<str:date_str>/", rss_audio_status, name="rss_audio_status"),
     path("items/", items_dashboard, name="items"),
     path("items/<str:google_id>/", item_action, name="item_action"),
+    path("contacts/", contacts_dashboard, name="contacts"),
+    path("contacts/merge/", contacts_merge_action, name="contacts_merge"),
     path("usage/", usage_dashboard, name="usage"),
     path("login/", login_view, name="login"),
     path("logout/", logout_view, name="logout"),

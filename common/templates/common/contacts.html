@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>big-sync · Contatti</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; display: flex; }
+    .sidebar { width: 56px; min-height: 100vh; background: #13151f; border-right: 1px solid #1e2030; display: flex; flex-direction: column; align-items: center; padding: 1rem 0; gap: 0.25rem; flex-shrink: 0; }
+    .sidebar .logo { font-size: 1.1rem; font-weight: 800; color: #6366f1; margin-bottom: 1rem; letter-spacing: -0.05em; }
+    .nav-item { position: relative; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 10px; cursor: default; transition: background 0.15s; }
+    .nav-item.active { background: #1e2030; color: #6366f1; }
+    .nav-item:not(.active) { color: #64748b; }
+    .nav-item svg { width: 20px; height: 20px; }
+    .nav-item .tooltip { position: absolute; left: 52px; background: #1e2030; color: #e2e8f0; font-size: 0.7rem; font-weight: 500; padding: 0.3rem 0.6rem; border-radius: 6px; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.15s; border: 1px solid #2d3148; z-index: 10; }
+    .nav-item:hover .tooltip { opacity: 1; }
+    .sidebar-divider { width: 24px; height: 1px; background: #1e2030; margin: 0.25rem 0; }
+    .sidebar-spacer { flex: 1; }
+    main { flex: 1; padding: 2rem; overflow-y: auto; max-width: 1100px; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; gap: 1rem; flex-wrap: wrap; }
+    h1 { font-size: 1.5rem; font-weight: 700; color: #fff; letter-spacing: -0.02em; }
+    h1 span { color: #6366f1; }
+    .filters { display: flex; gap: 0.5rem; align-items: center; font-size: 0.78rem; color: #94a3b8; }
+    .filters input { width: 50px; background: #1e2030; border: 1px solid #2d3148; color: #e2e8f0; padding: 0.25rem 0.4rem; border-radius: 5px; font-size: 0.78rem; }
+    .stat-line { font-size: 0.78rem; color: #94a3b8; margin-bottom: 1.5rem; }
+    section { margin-bottom: 2rem; }
+    h2 { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; margin-bottom: 0.75rem; }
+    .group { background: #13151f; border: 1px solid #1e2030; border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 0.85rem; }
+    .group-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem; }
+    .group-head strong { color: #e2e8f0; font-size: 0.85rem; }
+    .group-head .count { color: #64748b; font-size: 0.7rem; }
+    table.contacts { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+    table.contacts th, table.contacts td { padding: 0.45rem 0.6rem; border-bottom: 1px solid #1e2030; text-align: left; vertical-align: top; }
+    table.contacts tbody tr:last-child td { border-bottom: none; }
+    table.contacts tr.canon { background: #1a1d2c; }
+    table.contacts tr.gone { opacity: 0.4; text-decoration: line-through; }
+    .pill { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 4px; background: #1e2030; color: #94a3b8; font-size: 0.65rem; font-weight: 600; margin-right: 0.2rem; }
+    .pill.drive { background: #1a3a2a; color: #4ade80; }
+    .btn { background: #1e2030; color: #94a3b8; border: 1px solid #2d3148; padding: 0.3rem 0.7rem; border-radius: 5px; font-size: 0.72rem; cursor: pointer; }
+    .btn.primary { background: #6366f1; color: #fff; border-color: #6366f1; }
+    .btn:hover { color: #e2e8f0; border-color: #3a3f5c; }
+    .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+    .small { color: #64748b; font-size: 0.7rem; }
+    input[type="radio"], input[type="checkbox"] { accent-color: #6366f1; }
+    .empty { color: #64748b; font-style: italic; padding: 1rem; text-align: center; }
+    .toggle { font-size: 0.7rem; color: #94a3b8; display: flex; gap: 0.4rem; align-items: center; }
+    .group-actions { display: flex; gap: 0.5rem; align-items: center; }
+    .row-msg { font-size: 0.7rem; color: #4ade80; margin-left: 0.5rem; }
+    .row-msg.err { color: #f87171; }
+  </style>
+</head>
+<body>
+  {% with active="contacts" %}{% include "common/_sidebar.html" %}{% endwith %}
+
+  <main>
+    <div class="topbar">
+      <h1>big<span>-sync</span> · Contatti</h1>
+      <form class="filters" method="get">
+        <span>Max diff:</span><input name="max_dist" value="{{ max_dist }}">
+        <span>· min len:</span><input name="min_len" value="{{ min_len }}">
+        <button class="btn" type="submit">Aggiorna</button>
+      </form>
+    </div>
+
+    <div class="stat-line">
+      {{ total_active }} contatti attivi · {{ exact_groups|length }} gruppi nome esatto ·
+      {{ fuzzy_groups|length }} gruppi simili (Levenshtein ≤ {{ max_dist }})
+    </div>
+
+    {% if exact_groups %}
+    <section>
+      <h2>Nome esatto duplicato</h2>
+      {% for group in exact_groups %}
+      <div class="group" data-group="exact-{{ forloop.counter }}">
+        <div class="group-head">
+          <div>
+            <strong>{{ group.0.name }}</strong>
+            <span class="count">— {{ group|length }} contatti</span>
+          </div>
+          <div class="group-actions">
+            <label class="toggle"><input type="checkbox" class="del-google" checked> elimina duplicati da Google</label>
+            <button class="btn primary" onclick="doMerge(this)">Unisci</button>
+            <span class="row-msg" data-msg></span>
+          </div>
+        </div>
+        <table class="contacts">
+          <thead><tr><th>Canon</th><th>Merge</th><th>Nome</th><th>Telefoni</th><th>Email</th><th>Azienda</th><th>Alias</th><th></th></tr></thead>
+          <tbody>
+            {% for c in group %}
+            <tr class="{% if forloop.first %}canon{% endif %}" data-id="{{ c.id }}">
+              <td><input type="radio" name="group-exact-{{ forloop.parentloop.counter }}-canonical" value="{{ c.id }}" {% if forloop.first %}checked{% endif %}></td>
+              <td><input type="checkbox" class="merge-pick" value="{{ c.id }}" {% if not forloop.first %}checked{% endif %}></td>
+              <td>{{ c.name }} <span class="small">#{{ c.id }}</span></td>
+              <td>{% for p in c.phones %}<span class="pill">{{ p }}</span>{% endfor %}</td>
+              <td>{% for e in c.emails %}<span class="pill">{{ e }}</span>{% endfor %}</td>
+              <td>{{ c.company|default:"" }}</td>
+              <td>{% for a in c.aliases %}<span class="pill">{{ a }}</span>{% endfor %}</td>
+              <td>{% if c.drive %}<span class="pill drive">drive</span>{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    {% if fuzzy_groups %}
+    <section>
+      <h2>Simili (Levenshtein ≤ {{ max_dist }})</h2>
+      {% for group in fuzzy_groups %}
+      <div class="group" data-group="fuzzy-{{ forloop.counter }}">
+        <div class="group-head">
+          <div>
+            <strong>
+              {% for c in group %}{{ c.name }}{% if not forloop.last %} / {% endif %}{% endfor %}
+            </strong>
+            <span class="count">— {{ group|length }} contatti</span>
+          </div>
+          <div class="group-actions">
+            <label class="toggle"><input type="checkbox" class="del-google" checked> elimina da Google</label>
+            <button class="btn primary" onclick="doMerge(this)">Unisci selezionati</button>
+            <span class="row-msg" data-msg></span>
+          </div>
+        </div>
+        <table class="contacts">
+          <thead><tr><th>Canon</th><th>Merge</th><th>Nome</th><th>Telefoni</th><th>Email</th><th>Azienda</th><th>Alias</th><th></th></tr></thead>
+          <tbody>
+            {% for c in group %}
+            <tr {% if forloop.first %}class="canon"{% endif %} data-id="{{ c.id }}">
+              <td><input type="radio" name="group-fuzzy-{{ forloop.parentloop.counter }}-canonical" value="{{ c.id }}" {% if forloop.first %}checked{% endif %}></td>
+              <td><input type="checkbox" class="merge-pick" value="{{ c.id }}"></td>
+              <td>{{ c.name }} <span class="small">#{{ c.id }}</span></td>
+              <td>{% for p in c.phones %}<span class="pill">{{ p }}</span>{% endfor %}</td>
+              <td>{% for e in c.emails %}<span class="pill">{{ e }}</span>{% endfor %}</td>
+              <td>{{ c.company|default:"" }}</td>
+              <td>{% for a in c.aliases %}<span class="pill">{{ a }}</span>{% endfor %}</td>
+              <td>{% if c.drive %}<span class="pill drive">drive</span>{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    {% if not exact_groups and not fuzzy_groups %}
+    <div class="empty">Nessun gruppo di duplicati con i filtri correnti. Prova ad alzare "Max diff".</div>
+    {% endif %}
+  </main>
+
+  <script>
+    async function doMerge(btn) {
+      const group = btn.closest('.group');
+      const msg = group.querySelector('[data-msg]');
+      const canon = group.querySelector('input[type="radio"]:checked');
+      if (!canon) { msg.textContent = 'seleziona canonical'; msg.classList.add('err'); return; }
+      const canonicalId = parseInt(canon.value, 10);
+      const mergeIds = Array.from(group.querySelectorAll('.merge-pick:checked'))
+        .map(c => parseInt(c.value, 10))
+        .filter(id => id !== canonicalId);
+      if (!mergeIds.length) { msg.textContent = 'seleziona almeno un contatto da fondere'; msg.classList.add('err'); return; }
+      const delGoogle = group.querySelector('.del-google').checked;
+
+      btn.disabled = true;
+      msg.classList.remove('err');
+      msg.textContent = 'merge in corso…';
+
+      try {
+        const r = await fetch('/contacts/merge/', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            canonical_id: canonicalId,
+            merge_ids: mergeIds,
+            delete_google: delGoogle,
+          }),
+        });
+        const j = await r.json();
+        if (!j.ok) {
+          msg.classList.add('err');
+          msg.textContent = 'errore: ' + (j.error || 'unknown');
+          btn.disabled = false;
+          return;
+        }
+        msg.textContent = `unito ${j.merged.length} su ${j.canonical.name}`;
+        // Mark merged rows as gone in the table
+        j.merged.forEach(m => {
+          const tr = group.querySelector(`tr[data-id="${m.id}"]`);
+          if (tr) tr.classList.add('gone');
+        });
+      } catch (e) {
+        msg.classList.add('err');
+        msg.textContent = 'fetch fallito';
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>

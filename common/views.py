@@ -420,6 +420,147 @@ def source_placeholder(request, source):
     return render(request, "common/placeholder.html", {"source": source, "label": label})
 
 
+def contacts_dashboard(request):
+    if not _is_authenticated(request):
+        return redirect("login")
+
+    import re as _re
+    from collections import defaultdict
+
+    qs = Contact.objects.filter(merged_into__isnull=True).exclude(name="")
+    contacts = list(qs.order_by("name"))
+
+    def _norm(s):
+        s = (s or "").lower().strip()
+        return _re.sub(r"\s+", " ", s)
+
+    def _ed(a, b, cap=2):
+        if a == b:
+            return 0
+        if abs(len(a) - len(b)) > cap:
+            return cap + 1
+        prev = list(range(len(b) + 1))
+        for i, ca in enumerate(a, 1):
+            curr = [i] + [0] * len(b)
+            for j, cb in enumerate(b, 1):
+                cost = 0 if ca == cb else 1
+                curr[j] = min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost)
+            prev = curr
+        return prev[len(b)]
+
+    max_dist = max(0, min(4, int(request.GET.get("max_dist", "2"))))
+    min_len = max(2, int(request.GET.get("min_len", "4")))
+
+    # Exact-name groups first.
+    by_norm = defaultdict(list)
+    for c in contacts:
+        by_norm[_norm(c.name)].append(c)
+    exact_groups = [g for g in by_norm.values() if len(g) > 1]
+    in_exact = {c.pk for g in exact_groups for c in g}
+
+    # Fuzzy union-find on remaining contacts, bucketed by first letter.
+    remaining = [c for c in contacts if c.pk not in in_exact]
+    bucket = defaultdict(list)
+    for c in remaining:
+        n = _norm(c.name)
+        if len(n) >= min_len:
+            bucket[n[0]].append(c)
+    parent = {c.pk: c.pk for c in remaining}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    if max_dist > 0:
+        for items in bucket.values():
+            for i in range(len(items)):
+                for j in range(i + 1, len(items)):
+                    a, b = items[i], items[j]
+                    na, nb = _norm(a.name), _norm(b.name)
+                    if min(len(na), len(nb)) < min_len:
+                        continue
+                    if _ed(na, nb, max_dist) <= max_dist:
+                        union(a.pk, b.pk)
+
+    fuzzy_groups_map = defaultdict(list)
+    for c in remaining:
+        fuzzy_groups_map[find(c.pk)].append(c)
+    fuzzy_groups = [g for g in fuzzy_groups_map.values() if len(g) > 1]
+
+    def _enrich(group):
+        # Sort: canonical-candidate first (most info), then by name
+        def score(c):
+            return -(
+                (3 if c.company else 0)
+                + (2 if c.emails else 0)
+                + (2 if c.phones else 0)
+                + (1 if c.notes_url else 0)
+                + (1 if c.aliases else 0)
+            )
+        group = sorted(group, key=lambda c: (score(c), c.name))
+        return [
+            {
+                "id": c.pk,
+                "name": c.name,
+                "phones": c.phones or [],
+                "emails": c.emails or [],
+                "company": c.company,
+                "role": c.role,
+                "aliases": c.aliases or [],
+                "drive": bool(c.notes_url),
+            }
+            for c in group
+        ]
+
+    ctx = {
+        "exact_groups": [_enrich(g) for g in exact_groups],
+        "fuzzy_groups": [_enrich(g) for g in fuzzy_groups],
+        "total_active": len(contacts),
+        "max_dist": max_dist,
+        "min_len": min_len,
+    }
+    return render(request, "common/contacts.html", ctx)
+
+
+@csrf_exempt
+def contacts_merge_action(request):
+    """POST JSON {canonical_id, merge_ids: [...], delete_google: bool}."""
+    if not _is_authenticated(request):
+        return JsonResponse({"error": "auth"}, status=401)
+    if request.method != "POST":
+        return JsonResponse({"error": "method"}, status=405)
+
+    import json
+    try:
+        payload = json.loads(request.body or b"{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "invalid json"}, status=400)
+
+    canonical_id = payload.get("canonical_id")
+    merge_ids = payload.get("merge_ids") or []
+    delete_google = bool(payload.get("delete_google", True))
+    if not canonical_id or not merge_ids:
+        return JsonResponse({"error": "missing canonical_id or merge_ids"}, status=400)
+
+    from outputs.contacts import merge_contacts
+    try:
+        result = merge_contacts(int(canonical_id),
+                                  [int(i) for i in merge_ids],
+                                  delete_google=delete_google)
+    except Contact.DoesNotExist:
+        return JsonResponse({"error": "contact not found"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": str(e)[:300]}, status=500)
+    return JsonResponse(result)
+
+
 def items_dashboard(request):
     if not _is_authenticated(request):
         return redirect("login")
