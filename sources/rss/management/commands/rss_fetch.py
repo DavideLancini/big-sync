@@ -11,12 +11,12 @@ from sources.rss.models import RssArticle, RssFeed
 logger = logging.getLogger(__name__)
 
 DEFAULT_FEEDS = [
-    ("ANSA", "https://www.ansa.it/sito/notizie/topnews/topnews_rss.xml"),
-    ("Il Post", "https://www.ilpost.it/feed/"),
-    ("Corriere della Sera", "https://rss.corriere.it/rss/homepage.xml"),
-    ("la Repubblica", "https://www.repubblica.it/rss/homepage/rss2.0.xml"),
+    ("ANSA",                "https://www.ansa.it/sito/notizie/topnews/topnews_rss.xml"),
+    ("Il Post",             "https://feeds.feedburner.com/ilpost"),
+    ("Corriere della Sera", "https://xml2.corriereobjects.it/feed-hp/homepage-restyle-2025.xml"),
+    ("la Repubblica",       "https://www.repubblica.it/rss/homepage/rss2.0.xml"),
     ("Il Fatto Quotidiano", "https://www.ilfattoquotidiano.it/feed/"),
-    ("Wired Italia", "https://www.wired.it/feed/rss"),
+    ("Wired Italia",        "https://www.wired.it/feed/rss"),
 ]
 
 
