@@ -132,9 +132,10 @@ def upsert_todo_event(data: dict, fallback_datetime: datetime | None = None) -> 
     if data.get("notes"):
         body["description"] = data["notes"]
 
+    target_calendar = _route_calendar_for_todo(title, data)
     try:
-        result = service.events().insert(calendarId=_CALENDAR_ID, body=body).execute()
-        logger.info("Created todo event: %s @ %s", title, start.isoformat())
+        result = service.events().insert(calendarId=target_calendar, body=body).execute()
+        logger.info("Created todo event: %s @ %s (calendar=%s)", title, start.isoformat(), target_calendar)
         WriteLog.objects.create(
             type=WriteLog.TYPE_TASK,
             title=title,
@@ -144,6 +145,26 @@ def upsert_todo_event(data: dict, fallback_datetime: datetime | None = None) -> 
     except Exception:
         logger.exception("Error creating todo event: %s", data)
         return None
+
+
+def _route_calendar_for_todo(title: str, data: dict) -> str:
+    """Pick destination calendar for a todo (mirrors outputs/calendar logic)."""
+    try:
+        from workflows.routing import classify_event
+        from common.calendars import ROUTE_TO_CALENDAR
+    except Exception:
+        return _CALENDAR_ID
+    try:
+        ev = {
+            "title": title,
+            "description": data.get("notes", ""),
+            "is_todo": True,
+        }
+        route = classify_event(ev)
+        return ROUTE_TO_CALENDAR.get(route, _CALENDAR_ID)
+    except Exception:
+        logger.exception("Todo routing failed, keeping primary")
+        return _CALENDAR_ID
 
 
 def find_free_slot(

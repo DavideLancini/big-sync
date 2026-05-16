@@ -288,14 +288,40 @@ def upsert_event(data: dict) -> str | None:
         logger.warning("Could not build calendar event body for: %s", data)
         return None
 
+    target_calendar = _route_calendar_for(data)
     try:
-        result = service.events().insert(calendarId=_CALENDAR_ID, body=body).execute()
-        logger.info("Created calendar event: %s", title)
+        result = service.events().insert(calendarId=target_calendar, body=body).execute()
+        logger.info("Created calendar event: %s (calendar=%s)", title, target_calendar)
         WriteLog.objects.create(type=WriteLog.TYPE_EVENT, title=title, detail=data.get("date") or "")
         return result.get("id")
     except Exception:
         logger.exception("Error creating calendar event: %s", data)
         return None
+
+
+def _route_calendar_for(data: dict) -> str:
+    """Pick the destination calendar (primary / work / chiara) for a new event.
+
+    Conservative: any failure or low-confidence answer keeps the event on primary.
+    """
+    try:
+        from workflows.routing import classify_event
+        from common.calendars import ROUTE_TO_CALENDAR
+    except Exception:
+        return _CALENDAR_ID
+    try:
+        ev = {
+            "title": data.get("title", ""),
+            "description": data.get("description", ""),
+            "location": data.get("location", ""),
+            "attendees": data.get("attendees", []),
+            "is_todo": False,
+        }
+        route = classify_event(ev)
+        return ROUTE_TO_CALENDAR.get(route, _CALENDAR_ID)
+    except Exception:
+        logger.exception("Calendar routing failed, keeping primary")
+        return _CALENDAR_ID
 
 
 def _find_existing_ai(service, data: dict) -> dict | None:
