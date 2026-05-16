@@ -154,7 +154,7 @@ def rss_dashboard(request):
     from django.utils import timezone
     from sources.rss.models import RssArticle, RssDailySummary, RssFeed
 
-    tab = request.GET.get("tab", "news")
+    tab = request.GET.get("tab", "summary")
     feeds = RssFeed.objects.filter(active=True).order_by("name")
     feed_filter = request.GET.get("feed")
 
