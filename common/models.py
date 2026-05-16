@@ -80,7 +80,7 @@ class CachedEvent(models.Model):
     Soft-delete via deleted_at: when an event disappears from Google we keep
     the row but mark it deleted so historical lookups still work.
     """
-    google_id = models.CharField(max_length=128, db_index=True)
+    google_id = models.CharField(max_length=512, db_index=True)
     calendar_id = models.CharField(max_length=255, db_index=True)
     calendar_name = models.CharField(max_length=100, blank=True, default="")
 
