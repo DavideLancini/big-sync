@@ -17,7 +17,7 @@ from django.core.management.base import BaseCommand
 
 from common.models import Contact
 
-FUZZY_MAX_DIST = 2
+FUZZY_MAX_DIST = 2  # default; overridden by --max-dist
 
 
 def _norm(s: str) -> str:
@@ -26,12 +26,12 @@ def _norm(s: str) -> str:
     return s
 
 
-def _edit_distance(a: str, b: str) -> int:
+def _edit_distance(a: str, b: str, max_dist: int = FUZZY_MAX_DIST) -> int:
     if a == b:
         return 0
     la, lb = len(a), len(b)
-    if abs(la - lb) > FUZZY_MAX_DIST:
-        return FUZZY_MAX_DIST + 1
+    if abs(la - lb) > max_dist:
+        return max_dist + 1
     prev = list(range(lb + 1))
     for i, ca in enumerate(a, 1):
         curr = [i] + [0] * lb
@@ -62,7 +62,9 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--fuzzy", action="store_true",
-                            help="Also group names within Levenshtein ≤ 2 (otherwise exact only)")
+                            help="Also group names within Levenshtein ≤ --max-dist")
+        parser.add_argument("--max-dist", type=int, default=2,
+                            help="Max Levenshtein distance for fuzzy grouping (default 2)")
         parser.add_argument("--min-len", type=int, default=4,
                             help="Minimum name length for fuzzy grouping (default 4)")
         parser.add_argument("--include-empty", action="store_true",
@@ -105,8 +107,9 @@ class Command(BaseCommand):
                 in_exact.add(c.pk)
 
         remaining = [c for c in contacts if c.pk not in in_exact]
+        max_dist = opts["max_dist"]
         self.stdout.write(self.style.NOTICE(
-            f"\n=== Ricerca fuzzy (Levenshtein ≤ {FUZZY_MAX_DIST}) "
+            f"\n=== Ricerca fuzzy (Levenshtein ≤ {max_dist}) "
             f"su {len(remaining)} contatti restanti ==="
         ))
 
@@ -137,7 +140,7 @@ class Command(BaseCommand):
                     na, nb = _norm(a.name), _norm(b.name)
                     if min(len(na), len(nb)) < opts["min_len"]:
                         continue
-                    if _edit_distance(na, nb) <= FUZZY_MAX_DIST:
+                    if _edit_distance(na, nb, max_dist) <= max_dist:
                         union(a.pk, b.pk)
 
         groups: dict[int, list[Contact]] = defaultdict(list)
