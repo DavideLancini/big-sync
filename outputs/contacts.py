@@ -1,4 +1,20 @@
-"""Write contacts to Google Contacts (People API), using local cache for dedup."""
+"""Write contacts to Google Contacts (People API), using local cache for dedup.
+
+Matching policy
+---------------
+A new contact is treated as the same person as an existing one only when one of
+the following is true (in priority order):
+
+  1. Email matches exactly (lowercase).
+  2. Phone matches exactly (digits-only normalization).
+  3. Name (or any nickname / alias) is near-exact: same string, OR differs by
+     at most NEAR_EXACT_MAX_DIST characters and is at least NEAR_EXACT_MIN_LEN
+     long. Levenshtein distance, lowercase + collapsed whitespace.
+
+Anything looser creates a new contact. Aliases are roundtripped through Google
+as `nicknames` on the People resource, so the alias graph is visible to anyone
+opening Google Contacts and survives a cache wipe.
+"""
 import logging
 import re
 
@@ -10,25 +26,61 @@ from outputs.drive import append_contact_note
 
 logger = logging.getLogger(__name__)
 
+NEAR_EXACT_MAX_DIST = 2
+NEAR_EXACT_MIN_LEN = 4  # shorter strings must match exactly
+
 
 def _normalize_phone(phone: str) -> str:
     return re.sub(r"\D", "", phone or "")
+
+
+def _norm_name(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "").lower().strip())
 
 
 def _build_service():
     return build("people", "v1", credentials=get_credentials())
 
 
-def _find_existing_local(name: str, phone: str, email: str) -> Contact | None:
-    """Look up an existing local contact by email, phone, exact name, or alias.
+def _edit_distance(a: str, b: str) -> int:
+    """Classic Levenshtein. Short inputs only; we don't need optimization."""
+    if a == b:
+        return 0
+    la, lb = len(a), len(b)
+    if abs(la - lb) > NEAR_EXACT_MAX_DIST:
+        return NEAR_EXACT_MAX_DIST + 1
+    prev = list(range(lb + 1))
+    for i, ca in enumerate(a, 1):
+        curr = [i] + [0] * lb
+        for j, cb in enumerate(b, 1):
+            cost = 0 if ca == cb else 1
+            curr[j] = min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost)
+        prev = curr
+    return prev[lb]
 
-    Skips merged contacts (where merged_into is set). When a merged contact
-    matches anyway, the resolved canonical contact is returned.
+
+def _name_matches(query_norm: str, candidate: str) -> bool:
+    """True if `query_norm` matches `candidate` exactly or within NEAR_EXACT_MAX_DIST."""
+    cand = _norm_name(candidate)
+    if not query_norm or not cand:
+        return False
+    if query_norm == cand:
+        return True
+    # Require a minimum length on the shorter of the two before allowing fuzz.
+    if min(len(query_norm), len(cand)) < NEAR_EXACT_MIN_LEN:
+        return False
+    return _edit_distance(query_norm, cand) <= NEAR_EXACT_MAX_DIST
+
+
+def _find_existing_local(name: str, phone: str, email: str) -> Contact | None:
+    """Look up an existing local contact by email, phone, name or alias.
+
+    Skips merged contacts (merged_into set). Returns the resolved canonical
+    contact, never a tombstone.
     """
     norm_phone = _normalize_phone(phone)
     norm_email = (email or "").lower().strip()
-    norm_name = (name or "").strip()
-    norm_name_lc = norm_name.lower()
+    norm_name = _norm_name(name)
 
     base = Contact.objects.filter(merged_into__isnull=True)
 
@@ -41,17 +93,45 @@ def _find_existing_local(name: str, phone: str, email: str) -> Contact | None:
         if c:
             return c.resolve()
     if norm_name:
+        # Exact match shortcuts a Levenshtein scan.
         c = base.filter(name__iexact=norm_name).first()
         if c:
             return c.resolve()
-        # Alias match: aliases is a JSONField list of lowercase strings.
-        c = base.filter(aliases__contains=[norm_name_lc]).first()
+        c = base.filter(aliases__contains=[norm_name]).first()
         if c:
             return c.resolve()
+        # Near-exact: scan candidates whose name shares the first letter
+        # of the query. Keeps the cost bounded even when the pool grows.
+        initial = norm_name[0]
+        candidates = base.filter(name__istartswith=initial).only(
+            "id", "name", "aliases", "merged_into"
+        )
+        for cand in candidates:
+            if _name_matches(norm_name, cand.name):
+                return cand.resolve()
+            for alias in cand.aliases or []:
+                if _name_matches(norm_name, alias):
+                    return cand.resolve()
     return None
 
 
-def _build_body(data: dict, notes_url: str = "") -> dict:
+# ---------------------------------------------------------------------------
+# Google People API payloads
+# ---------------------------------------------------------------------------
+
+def _nicknames_payload(aliases: list[str]) -> list[dict]:
+    seen = set()
+    out = []
+    for a in aliases or []:
+        a_norm = _norm_name(a)
+        if not a_norm or a_norm in seen:
+            continue
+        seen.add(a_norm)
+        out.append({"value": a, "type": "DEFAULT"})
+    return out
+
+
+def _build_body(data: dict, notes_url: str = "", aliases: list[str] | None = None) -> dict:
     body = {}
     if data.get("name"):
         parts = data["name"].strip().split(" ", 1)
@@ -64,11 +144,16 @@ def _build_body(data: dict, notes_url: str = "") -> dict:
         body["organizations"] = [{"name": data["company"], "title": data.get("role") or ""}]
     if notes_url:
         body["biographies"] = [{"value": f"Note: {notes_url}", "contentType": "TEXT_PLAIN"}]
-    elif data.get("notes"):
-        # notes present but Drive write not done yet — caller handles Drive
-        pass
+    if aliases:
+        nicks = _nicknames_payload(aliases)
+        if nicks:
+            body["nicknames"] = nicks
     return body
 
+
+# ---------------------------------------------------------------------------
+# Create
+# ---------------------------------------------------------------------------
 
 def _create_contact(service, data: dict) -> str | None:
     new_note = (data.get("notes") or "").strip()
@@ -103,6 +188,10 @@ def _create_contact(service, data: dict) -> str | None:
         return None
 
 
+# ---------------------------------------------------------------------------
+# Enrich
+# ---------------------------------------------------------------------------
+
 def _enrich_contact(service, local: Contact, data: dict) -> str | None:
     resource_name = local.resource_name
     if not resource_name:
@@ -111,7 +200,7 @@ def _enrich_contact(service, local: Contact, data: dict) -> str | None:
     try:
         existing = service.people().get(
             resourceName=resource_name,
-            personFields="names,phoneNumbers,emailAddresses,organizations,biographies",
+            personFields="names,nicknames,phoneNumbers,emailAddresses,organizations,biographies",
         ).execute()
     except Exception:
         logger.exception("Error fetching contact for enrichment: %s", resource_name)
@@ -120,6 +209,19 @@ def _enrich_contact(service, local: Contact, data: dict) -> str | None:
     update_mask_fields = []
     body = {"etag": existing.get("etag", "")}
     local_changed = False
+
+    # Nickname: if the incoming name differs from the canonical name (or any
+    # existing alias) but matched via near-exact, record it as a new nickname.
+    incoming_name = _norm_name(data.get("name") or "")
+    canonical_name = _norm_name(local.name)
+    aliases_lc = {(_norm_name(a)) for a in (local.aliases or [])}
+    if incoming_name and incoming_name != canonical_name and incoming_name not in aliases_lc:
+        new_aliases = list(local.aliases or []) + [incoming_name]
+        existing_nicks = existing.get("nicknames", []) or []
+        body["nicknames"] = existing_nicks + [{"value": data.get("name", "").strip(), "type": "DEFAULT"}]
+        update_mask_fields.append("nicknames")
+        local.aliases = new_aliases
+        local_changed = True
 
     # Phone
     new_phone = _normalize_phone(data.get("phone") or "")
@@ -153,7 +255,6 @@ def _enrich_contact(service, local: Contact, data: dict) -> str | None:
         url = append_contact_note(local.name or data.get("name", "unknown"), full_notes, local.notes_url)
         drive_bio = f"Note: {url}"
 
-        # Update biography in Google only if it changed (new contact or URL changed)
         if url != local.notes_url or not local.notes_url:
             body["biographies"] = [{"value": drive_bio, "contentType": "TEXT_PLAIN"}]
             update_mask_fields.append("biographies")
@@ -183,6 +284,10 @@ def _enrich_contact(service, local: Contact, data: dict) -> str | None:
         return resource_name
 
 
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+
 def upsert_contact(data: dict) -> str | None:
     name = (data.get("name") or "").strip()
     phone = (data.get("phone") or "").strip()
@@ -192,72 +297,8 @@ def upsert_contact(data: dict) -> str | None:
         return None
 
     local = _find_existing_local(name, phone, email)
-
-    # AI alias resolution: if no exact match but a name was given, ask Gemini
-    # whether this name is an alias of an existing contact. Records the alias
-    # on the canonical contact so future writes hit the cache directly.
-    if local is None and name:
-        local = _find_via_alias_ai(name, phone, email)
-
     service = _build_service()
 
     if local:
         return _enrich_contact(service, local, data)
-    else:
-        return _create_contact(service, data)
-
-
-def _find_via_alias_ai(name: str, phone: str, email: str) -> Contact | None:
-    """Use Gemini to spot alias matches (Ghira → Ghiraffa Rossi)."""
-    try:
-        from workflows.dedup import resolve_contact_alias
-    except Exception:
-        return None
-
-    norm = (name or "").strip().lower()
-    if not norm:
-        return None
-
-    # Candidate pool: contacts whose first name (or any alias) starts with the
-    # first letter of the queried name. Cheap pre-filter, AI does the rest.
-    first_token = norm.split()[0]
-    if not first_token:
-        return None
-
-    initial = first_token[0]
-    qs = (
-        Contact.objects
-        .filter(merged_into__isnull=True)
-        .exclude(name__exact="")
-        .filter(name__istartswith=initial)
-    )[:30]
-    candidates = [
-        {
-            "id": c.pk,
-            "name": c.name,
-            "aliases": c.aliases or [],
-            "phones": c.phones or [],
-            "emails": c.emails or [],
-            "company": c.company or "",
-        }
-        for c in qs
-    ]
-    if not candidates:
-        return None
-
-    decision = resolve_contact_alias(name, phone, email, candidates)
-    match_id = decision.get("match_id")
-    if not match_id:
-        return None
-
-    try:
-        contact = Contact.objects.get(pk=match_id).resolve()
-    except Contact.DoesNotExist:
-        return None
-
-    new_alias = decision.get("alias_to_add")
-    if new_alias and new_alias not in (contact.aliases or []) and new_alias != (contact.name or "").lower():
-        contact.aliases = list(contact.aliases or []) + [new_alias]
-        contact.save(update_fields=["aliases", "updated_at"])
-        logger.info("Added alias %r to contact %s (%s)", new_alias, contact.name, decision.get("reason"))
-    return contact
+    return _create_contact(service, data)

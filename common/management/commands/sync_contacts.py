@@ -10,7 +10,7 @@ from common.models import Contact, ContactsSyncLog
 
 logger = logging.getLogger(__name__)
 
-READ_MASK = "names,phoneNumbers,emailAddresses,organizations,biographies"
+READ_MASK = "names,nicknames,phoneNumbers,emailAddresses,organizations,biographies"
 
 
 def _normalize_phone(phone: str) -> str:
@@ -67,6 +67,19 @@ def _sync():
             if bio.startswith("Note: https://drive.google.com/"):
                 notes_url = bio[len("Note: "):]
 
+            # Pull existing row once — we need its notes_url AND aliases.
+            existing = Contact.objects.filter(resource_name=resource_name).first()
+
+            # Merge Google nicknames into our local aliases. Google is the
+            # source of truth, but we union with whatever we already had
+            # locally so a manual edit on either side survives.
+            google_nicks = [
+                re.sub(r"\s+", " ", (n.get("value") or "").lower().strip())
+                for n in person.get("nicknames", []) if n.get("value")
+            ]
+            local_nicks = (existing.aliases or []) if existing else []
+            merged_aliases = list(dict.fromkeys(local_nicks + google_nicks))
+
             # Build defaults — preserve local notes/notes_url if Drive is the source of truth
             defaults = {
                 "name": name,
@@ -74,9 +87,9 @@ def _sync():
                 "emails": emails,
                 "company": company,
                 "role": role,
+                "aliases": merged_aliases,
             }
 
-            existing = Contact.objects.filter(resource_name=resource_name).first()
             if existing and existing.notes_url:
                 # Notes live on Drive — don't overwrite local full-text notes
                 if notes_url and notes_url != existing.notes_url:
