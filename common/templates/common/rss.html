@@ -205,23 +205,39 @@
       chevron.classList.toggle('open', !isOpen);
     }
 
+    // Attach an `ended` listener to every audio so the next one auto-plays.
+    // Idempotent via dataset flag.
+    function wireAutoAdvance() {
+      document.querySelectorAll('audio[data-topic-slug]').forEach(a => {
+        if (a.dataset.autoNext === '1') return;
+        a.dataset.autoNext = '1';
+        a.addEventListener('ended', () => {
+          const all = Array.from(document.querySelectorAll('audio[data-topic-slug]'));
+          const next = all[all.indexOf(a) + 1];
+          if (!next) return;
+          const card = next.closest('.topic-card');
+          if (card) {
+            const header = card.querySelector('.topic-header');
+            const body = card.querySelector('.topic-body');
+            if (body && !body.classList.contains('open') && header) toggleTopic(header);
+          }
+          next.scrollIntoView({behavior: 'smooth', block: 'center'});
+          next.play();
+        });
+      });
+    }
+
     function playAllAudios() {
-      const audios = Array.from(document.querySelectorAll('audio[data-topic-slug]'));
-      if (!audios.length) return;
+      const first = document.querySelector('audio[data-topic-slug]');
+      if (!first) return;
       // Open all topic cards so the listener sees what's playing
       document.querySelectorAll('.topic-header').forEach(h => {
         const body = h.nextElementSibling;
-        if (!body.classList.contains('open')) toggleTopic(h);
+        if (body && !body.classList.contains('open')) toggleTopic(h);
       });
-      let i = 0;
-      const playNext = () => {
-        if (i >= audios.length) return;
-        const a = audios[i];
-        a.scrollIntoView({behavior: 'smooth', block: 'center'});
-        a.play();
-        a.onended = () => { i++; playNext(); };
-      };
-      playNext();
+      wireAutoAdvance();
+      first.scrollIntoView({behavior: 'smooth', block: 'center'});
+      first.play();
     }
 
     // Async audio generation + status polling. The server forks a
@@ -306,11 +322,13 @@
         }
       });
       if (playAll) playAll.style.display = anyAudio ? '' : 'none';
+      wireAutoAdvance();
     }
 
     // On page load: if a job is already running (from a prior visit),
     // resume the polling automatically.
     document.addEventListener('DOMContentLoaded', () => {
+      wireAutoAdvance();
       const root = document.querySelector('[data-displayed-date]');
       if (!root) return;
       const dateStr = root.dataset.displayedDate;
