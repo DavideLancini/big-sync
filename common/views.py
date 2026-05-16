@@ -252,6 +252,141 @@ def rss_audio(request, date_str, topic_slug):
     return FileResponse(audio.file.open("rb"), content_type="audio/wav")
 
 
+def _pid_alive(pid: int) -> bool:
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+    except OSError:
+        return False
+
+
+@csrf_exempt
+def rss_audio_start(request, date_str):
+    """POST: kick off async rss_audio_generate for `date_str` if not already running.
+
+    Returns {job_id, status, total, completed, current_topic_slug, already_running}.
+    The subprocess is detached so it survives request/connection end.
+    """
+    if not _is_authenticated(request):
+        return JsonResponse({"error": "auth"}, status=401)
+    if request.method != "POST":
+        return JsonResponse({"error": "method"}, status=405)
+
+    from datetime import date as _date
+    from sources.rss.models import RssAudioJob
+    try:
+        target = _date.fromisoformat(date_str)
+    except ValueError:
+        return JsonResponse({"error": "bad date"}, status=400)
+
+    # Already-running job → return it; reap stale rows whose pid is dead.
+    running = RssAudioJob.objects.filter(date=target, status=RssAudioJob.STATUS_RUNNING).first()
+    if running:
+        if running.pid and not _pid_alive(running.pid):
+            running.status = RssAudioJob.STATUS_ERROR
+            running.error = "process disappeared"
+            from django.utils import timezone as _tz
+            running.finished_at = _tz.now()
+            running.save(update_fields=["status", "error", "finished_at", "updated_at"])
+        else:
+            return JsonResponse({
+                "job_id": running.pk,
+                "status": running.status,
+                "total": running.total_sections,
+                "completed": running.completed_sections,
+                "current_topic_slug": running.current_topic_slug,
+                "already_running": True,
+            })
+
+    job = RssAudioJob.objects.create(date=target, status=RssAudioJob.STATUS_RUNNING)
+
+    manage = [sys.executable, "/var/www/big-sync/manage.py"]
+    cmd = manage + ["rss_audio_generate", "--date", date_str, "--job-id", str(job.pk)]
+
+    proc = subprocess.Popen(
+        cmd,
+        cwd="/var/www/big-sync",
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+        env={**os.environ, "PYTHONUNBUFFERED": "1"},
+    )
+    job.pid = proc.pid
+    job.save(update_fields=["pid", "updated_at"])
+
+    return JsonResponse({
+        "job_id": job.pk,
+        "status": job.status,
+        "total": 0,
+        "completed": 0,
+        "current_topic_slug": "",
+        "already_running": False,
+    })
+
+
+def rss_audio_status(request, date_str):
+    """GET: current job state for `date_str` + per-section audio info."""
+    if not _is_authenticated(request):
+        return JsonResponse({"error": "auth"}, status=401)
+
+    from datetime import date as _date
+    from sources.rss.models import RssAudioJob, RssDailyAudio, RssDailySummary
+    try:
+        target = _date.fromisoformat(date_str)
+    except ValueError:
+        return JsonResponse({"error": "bad date"}, status=400)
+
+    job = RssAudioJob.objects.filter(date=target).order_by("-started_at").first()
+    job_payload = None
+    if job:
+        # Reap stale running jobs whose process is gone.
+        if job.status == RssAudioJob.STATUS_RUNNING and job.pid and not _pid_alive(job.pid):
+            job.status = RssAudioJob.STATUS_ERROR
+            job.error = "process disappeared"
+            from django.utils import timezone as _tz
+            job.finished_at = _tz.now()
+            job.save(update_fields=["status", "error", "finished_at", "updated_at"])
+        job_payload = {
+            "id": job.pk,
+            "status": job.status,
+            "total": job.total_sections,
+            "completed": job.completed_sections,
+            "current_topic_slug": job.current_topic_slug,
+            "error": job.error,
+            "started_at": job.started_at.isoformat(),
+        }
+
+    audios = {
+        a.topic_id: a for a in
+        RssDailyAudio.objects.filter(date=target).select_related("topic")
+    }
+    sections = []
+    for s in (RssDailySummary.objects.filter(date=target, article_count__gt=0)
+                .select_related("topic").order_by("topic__order")):
+        a = audios.get(s.topic_id)
+        stale = a is not None and a.summary_updated_at < s.updated_at
+        sections.append({
+            "topic_slug": s.topic.slug,
+            "topic_name": s.topic.name,
+            "has_audio": bool(a) and not stale,
+            "stale": stale,
+            "audio_url": f"/rss/audio/{date_str}/{s.topic.slug}/" if a and not stale else None,
+        })
+    missing_or_stale = sum(1 for s in sections if not s["has_audio"])
+
+    return JsonResponse({
+        "job": job_payload,
+        "sections": sections,
+        "missing_or_stale": missing_or_stale,
+        "running": bool(job_payload and job_payload["status"] == "running"),
+    })
+
+
 def rss_article(request, pk):
     if not _is_authenticated(request):
         return redirect("login")
@@ -510,15 +645,6 @@ def run_command(request, action):
         "plaud_process": manage + ["plaud_process_pending"],
         "plaud_summarize": manage + ["plaud_summarize_pending"],
     }
-
-    if action.startswith("rss_audio:"):
-        from datetime import date as date_type
-        date_str = action.removeprefix("rss_audio:")
-        try:
-            date_type.fromisoformat(date_str)
-        except ValueError:
-            return JsonResponse({"error": "Data non valida"}, status=400)
-        commands[action] = manage + ["rss_audio_generate", "--date", date_str]
 
     if action not in commands:
         return JsonResponse({"error": "Unknown action"}, status=400)

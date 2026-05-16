@@ -136,35 +136,32 @@
 
     {% if summaries %}
 
-    <div style="margin-bottom:1.25rem;">
+    <div style="margin-bottom:1.25rem;" data-displayed-date="{{ displayed_date|date:'Y-m-d' }}">
       <div style="background:#13151f;border:1px solid #1e2030;border-radius:10px;padding:0.75rem 1rem;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
         <span style="font-size:0.75rem;font-weight:600;color:#6366f1;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;vertical-align:middle;margin-right:0.3rem;"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
           Briefing audio
         </span>
-        {% if audio_has_any %}
-        <button class="btn" id="play-all-btn" onclick="playAllAudios()" style="background:#6366f1;color:#fff;">▶ Riproduci tutto</button>
-        {% endif %}
+        <button class="btn" id="play-all-btn" onclick="playAllAudios()" style="background:#6366f1;color:#fff;{% if not audio_has_any %}display:none;{% endif %}">▶ Riproduci tutto</button>
         <button class="btn" id="audio-btn" onclick="generateAudio('{{ displayed_date|date:"Y-m-d" }}')">
           {% if audio_missing_or_stale %}Genera mancanti ({{ audio_missing_or_stale }}){% else %}Aggiorna audio{% endif %}
         </button>
-        <span style="font-size:0.7rem;color:#6b7280;">{{ audio_sections|length }} sezioni · {{ audio_missing_or_stale }} da generare</span>
+        <span id="audio-status" style="font-size:0.7rem;color:#6b7280;">{{ audio_sections|length }} sezioni · {{ audio_missing_or_stale }} da generare</span>
       </div>
-      <div id="audio-log" style="background:#0a0b12;border:1px solid #1e2030;border-radius:8px;padding:0.75rem 1rem;font-family:monospace;font-size:0.75rem;color:#4ade80;white-space:pre-wrap;margin-top:0.75rem;max-height:150px;overflow-y:auto;display:none;"></div>
     </div>
 
     <div class="topic-cards">
       {% for sec in audio_sections %}
-      <div class="topic-card">
+      <div class="topic-card" data-topic-slug="{{ sec.topic.slug }}">
         <div class="topic-header" onclick="toggleTopic(this)">
           <span class="topic-name">
             {{ sec.topic.name }}
             {% if sec.audio and not sec.stale %}
-              <span style="font-size:0.65rem;color:#4ade80;margin-left:0.4rem;">● audio</span>
+              <span class="topic-flag" style="font-size:0.65rem;color:#4ade80;margin-left:0.4rem;">● audio</span>
             {% elif sec.stale %}
-              <span style="font-size:0.65rem;color:#f59e0b;margin-left:0.4rem;">● audio obsoleto</span>
+              <span class="topic-flag" style="font-size:0.65rem;color:#f59e0b;margin-left:0.4rem;">● audio obsoleto</span>
             {% else %}
-              <span style="font-size:0.65rem;color:#6b7280;margin-left:0.4rem;">○ no audio</span>
+              <span class="topic-flag" style="font-size:0.65rem;color:#6b7280;margin-left:0.4rem;">○ no audio</span>
             {% endif %}
           </span>
           <div style="display:flex;align-items:center;gap:0.75rem;">
@@ -227,25 +224,105 @@
       playNext();
     }
 
+    // Async audio generation + status polling. The server forks a
+    // detached subprocess so the run survives even if the user leaves the
+    // page. The JS only polls /api/rss_audio_status to refresh the UI.
+    let __audioPollTimer = null;
+
     function generateAudio(dateStr) {
       const btn = document.getElementById('audio-btn');
-      const log = document.getElementById('audio-log');
-      btn.classList.add('loading');
-      btn.textContent = 'Generazione...';
-      log.style.display = 'block';
-      log.textContent = '';
-
-      const es = new EventSource(`/run/rss_audio:${dateStr}/`);
-      es.onmessage = e => {
-        log.textContent += e.data + '\n';
-        log.scrollTop = log.scrollHeight;
-      };
-      es.addEventListener('done', () => {
-        es.close();
-        setTimeout(() => location.reload(), 500);
-      });
-      es.onerror = () => { es.close(); btn.classList.remove('loading'); };
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.textContent = 'Avvio…';
+      fetch(`/api/rss_audio_start/${dateStr}/`, {method: 'POST'})
+        .then(r => r.json())
+        .then(j => { startPolling(dateStr); })
+        .catch(() => { btn.disabled = false; btn.textContent = 'Errore, riprova'; });
     }
+
+    function startPolling(dateStr) {
+      if (__audioPollTimer) clearInterval(__audioPollTimer);
+      pollOnce(dateStr);
+      __audioPollTimer = setInterval(() => pollOnce(dateStr), 3000);
+    }
+
+    async function pollOnce(dateStr) {
+      let data;
+      try {
+        const r = await fetch(`/api/rss_audio_status/${dateStr}/`);
+        data = await r.json();
+      } catch (e) { return; }
+      renderStatus(dateStr, data);
+      if (!data.running) {
+        clearInterval(__audioPollTimer);
+        __audioPollTimer = null;
+      }
+    }
+
+    function renderStatus(dateStr, data) {
+      const btn = document.getElementById('audio-btn');
+      const status = document.getElementById('audio-status');
+      const playAll = document.getElementById('play-all-btn');
+      const job = data.job;
+      const total = job ? job.total : 0;
+      const done = job ? job.completed : 0;
+      const missing = data.missing_or_stale;
+
+      if (data.running) {
+        btn.disabled = true;
+        const cur = (job && job.current_topic_slug) ? `· ${job.current_topic_slug}` : '';
+        btn.textContent = total ? `Generazione ${done}/${total} ${cur}` : 'Avvio…';
+        status.textContent = `Generazione in corso ${done}/${total}`;
+      } else {
+        btn.disabled = false;
+        btn.textContent = missing > 0 ? `Genera mancanti (${missing})` : 'Aggiorna audio';
+        status.textContent = `${data.sections.length} sezioni · ${missing} da generare`;
+      }
+
+      // Hot-swap audio players when sections become available
+      let anyAudio = false;
+      data.sections.forEach(s => {
+        const card = document.querySelector(`.topic-card[data-topic-slug="${s.topic_slug}"]`);
+        if (!card) return;
+        const body = card.querySelector('.topic-body');
+        let existing = body.querySelector('audio[data-topic-slug]');
+        const flag = card.querySelector('.topic-flag');
+        if (s.has_audio) {
+          anyAudio = true;
+          if (!existing && s.audio_url) {
+            existing = document.createElement('audio');
+            existing.setAttribute('controls', '');
+            existing.setAttribute('preload', 'none');
+            existing.dataset.topicSlug = s.topic_slug;
+            existing.src = s.audio_url;
+            existing.style.cssText = 'width:100%;height:32px;accent-color:#6366f1;margin-bottom:0.75rem;';
+            body.prepend(existing);
+          }
+          if (flag) { flag.textContent = '● audio'; flag.style.color = '#4ade80'; }
+        } else if (s.stale) {
+          if (flag) { flag.textContent = '● audio obsoleto'; flag.style.color = '#f59e0b'; }
+        } else {
+          if (flag) { flag.textContent = '○ no audio'; flag.style.color = '#6b7280'; }
+        }
+      });
+      if (playAll) playAll.style.display = anyAudio ? '' : 'none';
+    }
+
+    // On page load: if a job is already running (from a prior visit),
+    // resume the polling automatically.
+    document.addEventListener('DOMContentLoaded', () => {
+      const root = document.querySelector('[data-displayed-date]');
+      if (!root) return;
+      const dateStr = root.dataset.displayedDate;
+      pollOnce(dateStr).then(() => {
+        // If the server says we're still running, keep polling.
+        // (pollOnce already starts the interval when running=true via startPolling? no — only generateAudio does.
+        // Bootstrap the timer here when needed.)
+        fetch(`/api/rss_audio_status/${dateStr}/`).then(r => r.json()).then(d => {
+          if (d.running) startPolling(dateStr);
+        });
+      });
+    });
 
     function runUpdate() {
       const btn = document.getElementById('fetch-btn');

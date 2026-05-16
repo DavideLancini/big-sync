@@ -93,3 +93,32 @@ class RssDailyAudio(models.Model):
 
     def __str__(self):
         return f"audio {self.date} – {self.topic.name}"
+
+
+class RssAudioJob(models.Model):
+    """Tracks one async run of rss_audio_generate so the UI can poll status."""
+    STATUS_RUNNING = "running"
+    STATUS_DONE = "done"
+    STATUS_ERROR = "error"
+    STATUS_CHOICES = [
+        (STATUS_RUNNING, "Running"),
+        (STATUS_DONE, "Done"),
+        (STATUS_ERROR, "Error"),
+    ]
+
+    date = models.DateField(db_index=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_RUNNING, db_index=True)
+    total_sections = models.IntegerField(default=0)
+    completed_sections = models.IntegerField(default=0)
+    current_topic_slug = models.CharField(max_length=64, blank=True, default="")
+    error = models.TextField(blank=True, default="")
+    pid = models.IntegerField(null=True, blank=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+
+    def __str__(self):
+        return f"job {self.pk} date={self.date} status={self.status} {self.completed_sections}/{self.total_sections}"
