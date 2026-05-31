@@ -68,8 +68,10 @@ def full_import(service, stdout, max_results=None) -> tuple[int, str]:
 
 
 def incremental_import(service, history_id: str, stdout) -> tuple[int, str]:
-    """Fetch only messages added since history_id."""
+    """Fetch the delta since `history_id`: ingest new messages, delete the ones
+    that have been removed (permanent delete) or moved to Trash on Gmail."""
     new_ids: set[str] = set()
+    deleted_ids: set[str] = set()
     page_token = None
 
     try:
@@ -77,7 +79,9 @@ def incremental_import(service, history_id: str, stdout) -> tuple[int, str]:
             params = {
                 "userId": "me",
                 "startHistoryId": history_id,
-                "historyTypes": ["messageAdded"],
+                # Ask Gmail to surface inserts, deletes, and label changes:
+                # we treat the TRASH label as a soft delete on our side.
+                "historyTypes": ["messageAdded", "messageDeleted", "labelAdded"],
             }
             if page_token:
                 params["pageToken"] = page_token
@@ -86,6 +90,11 @@ def incremental_import(service, history_id: str, stdout) -> tuple[int, str]:
             for record in result.get("history", []):
                 for added in record.get("messagesAdded", []):
                     new_ids.add(added["message"]["id"])
+                for removed in record.get("messagesDeleted", []):
+                    deleted_ids.add(removed["message"]["id"])
+                for label_change in record.get("labelsAdded", []):
+                    if "TRASH" in (label_change.get("labelIds") or []):
+                        deleted_ids.add(label_change["message"]["id"])
 
             page_token = result.get("nextPageToken")
             if not page_token:
@@ -96,6 +105,8 @@ def incremental_import(service, history_id: str, stdout) -> tuple[int, str]:
 
     saved = 0
     for gmail_id in new_ids:
+        if gmail_id in deleted_ids:
+            continue  # added then deleted in the same window — nothing to do
         if GmailMessage.objects.filter(gmail_id=gmail_id).exists():
             continue
         try:
@@ -108,8 +119,15 @@ def incremental_import(service, history_id: str, stdout) -> tuple[int, str]:
         except Exception as e:
             stdout.write(f"  WARN {gmail_id}: {e}")
 
+    purged = 0
+    if deleted_ids:
+        purged, _ = GmailMessage.objects.filter(gmail_id__in=deleted_ids).delete()
+        # the delete() returns (count, {model: count}); we only care about count
+        purged = purged if isinstance(purged, int) else 0
+        stdout.write(f"  -{purged} cancellati (delete/trash su Gmail)")
+
     new_history_id = _get_history_id(service)
-    stdout.write(f"Importati {saved} nuovi. historyId: {new_history_id}")
+    stdout.write(f"Importati {saved} nuovi, {purged} rimossi. historyId: {new_history_id}")
     return saved, new_history_id
 
 
