@@ -709,6 +709,49 @@ def plaud_dashboard(request):
     })
 
 
+def plaud_detail(request, pk):
+    """JSON: titolo, trascrizione, riassunto, URL audio per il modale."""
+    if not _is_authenticated(request):
+        return JsonResponse({"error": "auth"}, status=401)
+    from sources.plaud.models import PlaudRecording
+    try:
+        r = PlaudRecording.objects.get(pk=pk)
+    except PlaudRecording.DoesNotExist:
+        return JsonResponse({"error": "not found"}, status=404)
+    return JsonResponse({
+        "id": r.pk,
+        "title": r.title or "",
+        "original_name": r.original_name or "",
+        "transcription": r.transcription or "",
+        "summary": r.summary or "",
+        "audio_url": f"/plaud/{r.pk}/audio/",
+        "created_at": r.created_at.isoformat() if r.created_at else "",
+        "processed": r.processed,
+        "summarized": r.summarized,
+        "error": r.error or "",
+    })
+
+
+def plaud_audio(request, pk):
+    """Stream the audio file. ?download=1 → Content-Disposition attachment."""
+    if not _is_authenticated(request):
+        return redirect("login")
+    from sources.plaud.models import PlaudRecording
+    try:
+        r = PlaudRecording.objects.get(pk=pk)
+    except PlaudRecording.DoesNotExist:
+        raise Http404
+    if not r.file:
+        raise Http404
+    import mimetypes, os as _os
+    mime = mimetypes.guess_type(r.file.name)[0] or "audio/mpeg"
+    fname = _os.path.basename(r.original_name or r.file.name)
+    resp = FileResponse(r.file.open("rb"), content_type=mime)
+    if request.GET.get("download"):
+        resp["Content-Disposition"] = f'attachment; filename="{fname}"'
+    return resp
+
+
 @csrf_exempt
 def plaud_upload(request):
     if not _is_authenticated(request):

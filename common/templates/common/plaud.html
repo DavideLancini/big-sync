@@ -49,6 +49,26 @@
     .log-header { background: #1e2030; padding: 0.4rem 0.75rem; font-size: 0.7rem; color: #64748b; display: flex; justify-content: space-between; }
     #log { background: #0a0c14; color: #4ade80; font-family: monospace; font-size: 0.72rem; padding: 0.75rem; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
     .none { color: #374151; font-style: italic; font-size: 0.875rem; }
+    .row.col { cursor: pointer; transition: border-color 0.15s; }
+    .row.col:hover { border-color: #6366f1; }
+    /* Modal */
+    .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; z-index: 100; padding: 1rem; }
+    .modal-bg.open { display: flex; }
+    .modal { background: #13151f; border: 1px solid #2d3148; border-radius: 12px; max-width: 800px; width: 100%; max-height: 90vh; display: flex; flex-direction: column; }
+    .modal-head { padding: 1rem 1.25rem; border-bottom: 1px solid #1e2030; display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+    .modal-head h3 { font-size: 1rem; color: #fff; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .modal-close { background: transparent; color: #94a3b8; font-size: 1.25rem; padding: 0.2rem 0.5rem; border-radius: 6px; cursor: pointer; }
+    .modal-close:hover { color: #fff; background: #1e2030; }
+    .modal-body { padding: 1.25rem; overflow-y: auto; }
+    .modal-section { margin-bottom: 1.25rem; }
+    .modal-section:last-child { margin-bottom: 0; }
+    .modal-section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+    .modal-section-head h4 { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; }
+    .modal-section .content { background: #0a0c14; border: 1px solid #1e2030; border-radius: 8px; padding: 0.85rem 1rem; font-size: 0.8rem; line-height: 1.6; color: #cbd5e1; white-space: pre-wrap; word-break: break-word; max-height: 30vh; overflow-y: auto; }
+    .modal-section audio { width: 100%; }
+    .btn-mini { background: #1e2030; color: #94a3b8; border: 1px solid #2d3148; padding: 0.3rem 0.7rem; border-radius: 5px; font-size: 0.7rem; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 0.3rem; }
+    .btn-mini:hover { color: #e2e8f0; border-color: #3a3f5c; }
+    .empty-content { color: #475569; font-style: italic; font-size: 0.78rem; padding: 0.5rem; }
   </style>
 </head>
 <body>
@@ -93,7 +113,7 @@
       <h2>Registrazioni recenti</h2>
       <div style="display:flex;flex-direction:column;gap:0.5rem;">
         {% for r in recordings %}
-        <div class="row col">
+        <div class="row col" data-id="{{ r.pk }}" onclick="openModal({{ r.pk }})">
           <div class="row-head">
             <div class="name">{{ r.title|default:r.original_name|default:r.file.name }}</div>
             <div class="meta">
@@ -116,7 +136,96 @@
     </section>
   </main>
 
+  <div class="modal-bg" id="modal" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="m-title">—</h3>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-section">
+          <div class="modal-section-head">
+            <h4>Audio</h4>
+            <a class="btn-mini" id="m-dl-audio" href="#" download>↓ scarica</a>
+          </div>
+          <audio id="m-audio" controls preload="none"></audio>
+        </div>
+        <div class="modal-section">
+          <div class="modal-section-head">
+            <h4>Trascrizione</h4>
+            <button class="btn-mini" id="m-dl-tx" onclick="downloadText('transcription')">↓ scarica .txt</button>
+          </div>
+          <div class="content" id="m-transcription">—</div>
+        </div>
+        <div class="modal-section">
+          <div class="modal-section-head">
+            <h4>Riassunto</h4>
+            <button class="btn-mini" id="m-dl-sum" onclick="downloadText('summary')">↓ scarica .md</button>
+          </div>
+          <div class="content" id="m-summary">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
+    let currentDetail = null;
+
+    async function openModal(pk) {
+      const m = document.getElementById('modal');
+      document.getElementById('m-title').textContent = 'Caricamento…';
+      document.getElementById('m-transcription').textContent = '—';
+      document.getElementById('m-summary').textContent = '—';
+      document.getElementById('m-audio').src = '';
+      m.classList.add('open');
+      try {
+        const r = await fetch(`/plaud/${pk}/`);
+        const j = await r.json();
+        if (j.error) throw new Error(j.error);
+        currentDetail = j;
+        document.getElementById('m-title').textContent = j.title || j.original_name || `Registrazione #${pk}`;
+        const audio = document.getElementById('m-audio');
+        audio.src = j.audio_url;
+        document.getElementById('m-dl-audio').href = j.audio_url + '?download=1';
+        const tx = document.getElementById('m-transcription');
+        if (j.transcription) { tx.textContent = j.transcription; tx.classList.remove('empty-content'); }
+        else { tx.innerHTML = '<span class="empty-content">Nessuna trascrizione disponibile.</span>'; }
+        const sm = document.getElementById('m-summary');
+        if (j.summary) { sm.textContent = j.summary; sm.classList.remove('empty-content'); }
+        else { sm.innerHTML = '<span class="empty-content">Nessun riassunto disponibile.</span>'; }
+      } catch (e) {
+        document.getElementById('m-title').textContent = 'Errore: ' + e.message;
+      }
+    }
+
+    function closeModal() {
+      const m = document.getElementById('modal');
+      m.classList.remove('open');
+      const audio = document.getElementById('m-audio');
+      audio.pause();
+      audio.src = '';
+      currentDetail = null;
+    }
+
+    function downloadText(field) {
+      if (!currentDetail) return;
+      const text = currentDetail[field] || '';
+      if (!text) return;
+      const ext = field === 'summary' ? 'md' : 'txt';
+      const base = (currentDetail.title || currentDetail.original_name || `plaud-${currentDetail.id}`)
+        .replace(/[^\w\-. ]+/g, '_').slice(0, 80);
+      const blob = new Blob([text], {type: ext === 'md' ? 'text/markdown' : 'text/plain'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${base}.${field}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }
+
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
     const fileInput = document.getElementById('file-input');
     const hint = document.getElementById('upload-status');
 
