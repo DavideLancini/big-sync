@@ -153,14 +153,20 @@
         <div class="modal-section">
           <div class="modal-section-head">
             <h4>Trascrizione</h4>
-            <button class="btn-mini" id="m-dl-tx" onclick="downloadText('transcription')">↓ scarica .txt</button>
+            <div style="display:flex;gap:0.35rem;">
+              <button class="btn-mini" onclick="copyText('transcription', this)">⎘ copia</button>
+              <button class="btn-mini" onclick="downloadText('transcription')">↓ scarica .txt</button>
+            </div>
           </div>
           <div class="content" id="m-transcription">—</div>
         </div>
         <div class="modal-section">
           <div class="modal-section-head">
             <h4>Riassunto</h4>
-            <button class="btn-mini" id="m-dl-sum" onclick="downloadText('summary')">↓ scarica .md</button>
+            <div style="display:flex;gap:0.35rem;">
+              <button class="btn-mini" onclick="copyText('summary', this)">⎘ copia</button>
+              <button class="btn-mini" onclick="downloadText('summary')">↓ scarica .md</button>
+            </div>
           </div>
           <div class="content" id="m-summary">—</div>
         </div>
@@ -205,6 +211,25 @@
       audio.pause();
       audio.src = '';
       currentDetail = null;
+    }
+
+    async function copyText(field, btn) {
+      if (!currentDetail) return;
+      const text = currentDetail[field] || '';
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch (e) {
+        // Fallback for non-secure contexts
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); ta.remove();
+      }
+      const orig = btn.textContent;
+      btn.textContent = '✓ copiato';
+      btn.style.color = '#4ade80';
+      setTimeout(() => { btn.textContent = orig; btn.style.color = ''; }, 1500);
     }
 
     function downloadText(field) {
