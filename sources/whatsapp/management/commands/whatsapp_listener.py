@@ -235,8 +235,10 @@ class Command(BaseCommand):
                 logger.exception("parse_event failed")
                 return
 
-            if parsed["is_from_me"]:
-                return  # ignore self-sent — mirror Telegram listener behavior
+            # Self-sent messages used to be dropped here; they're now ingested
+            # so the local DB has the full conversation. Skip AI analysis on
+            # them (see _analyze call below) to avoid extracting entities from
+            # the user's own replies.
 
             # chat name resolution: for groups, try GroupInfo; for DMs fallback to sender push name
             chat_name = parsed["sender_name"] or parsed["chat_jid"].split("@")[0]
@@ -267,6 +269,10 @@ class Command(BaseCommand):
                 if path:
                     await sync_to_async(_update_media_path)(obj.pk, path)
                     self.stdout.write(f"  → media saved: {path}")
+
+            if parsed["is_from_me"]:
+                # ingest only — don't feed our own replies to the AI extractor
+                return
 
             try:
                 counts = await sync_to_async(_analyze)(obj)
